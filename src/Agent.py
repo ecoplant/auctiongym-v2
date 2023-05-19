@@ -3,10 +3,12 @@ import numpy as np
 from Allocator import *
 from Bidder import *
 
-class Agent:
-    ''' An agent representing an advertiser '''
+def parse_kwargs(kwargs):
+    parsed = ','.join([f'{key}={value}' for key, value in kwargs.items()])
+    return ',' + parsed if parsed else ''
 
-    def __init__(self, rng, name, item_features, item_values, allocator, bidder, context_dim, update_interval, random_bidding):
+class Agent:
+    def __init__(self, rng, name, item_features, item_values, context_dim, buffer):
         self.rng = rng
         self.name = name
         self.items = item_features
@@ -16,29 +18,25 @@ class Agent:
         self.feature_dim = item_features.shape[1]
         self.context_dim = context_dim
 
-        self.allocator = allocator
-        self.bidder = bidder
-
-        split = random_bidding.split()
-        self.random_bidding_mode = split[0]    # uniform or gaussian noise
-        if self.random_bidding_mode!='None':
-            self.init_num_random_bidding = int(split[1])
-            self.decay_factor = float(split[2])
-
-        self.use_optimistic_value = True
-
+        self.buffer = buffer
         self.clock = 0
-        self.update_interval = update_interval
-    
-    def should_explore(self):
-        if isinstance(self.bidder, OracleBidder):
-            return False
-        if (self.allocator.mode=='TS' or self.allocator.mode=='UCB') and self.use_optimistic_value:
-            return self.clock%self.update_interval < \
-            self.init_num_random_bidding/np.power(self.decay_factor, int(self.clock/self.update_interval))/4
-        else:
-            return self.clock%self.update_interval < \
-                self.init_num_random_bidding/np.power(self.decay_factor, int(self.clock/self.update_interval))
+
+    def select_item(self, context):
+        pass
+
+    def bid(self, context):
+        pass
+
+class Bandit:
+    ''' A bandit-style agent '''
+
+    def __init__(self, rng, name, item_features, item_values, context_dim, config):
+        super.__init__(rng, name, item_features, item_values, context_dim)
+
+        self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
+        self.bidder = eval(f"{config['bidder']['type']}(rng=rng,  context_dim=context_dim, num_items=self.num_items{parse_kwargs(config['bidder']['kwargs'])})")
+
+        self.exploration_length = config['exploration_length']
 
     def select_item(self, context):
         # Estimate CTR for all items
@@ -65,37 +63,25 @@ class Agent:
 
         if isinstance(self.bidder, OracleBidder):
             bid = self.bidder.bid(value, estimated_CTR, prob_win, b_grid)
-        elif not isinstance(self.allocator, OracleAllocator) and self.should_explore():
-            if self.random_bidding_mode=='uniform':
-                bid = self.rng.uniform(0, value*1.5)
-            elif self.random_bidding_mode=='overbidding-uniform':
-                bid = self.rng.uniform(value*1.0, value*1.5)
-            elif self.random_bidding_mode=='gaussian':
-                bid = self.bidder.bid(value, context, estimated_CTR)
-                bid += value * self.rng.normal(0, 0.5)
-                bid = np.maximum(bid, 0)
         else:
             if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
                 mean_CTR = self.allocator.estimate_CTR(context, UCB=False)
                 estimated_CTR = mean_CTR[item]
-                if self.use_optimistic_value:
-                    bid = self.bidder.bid(value, context, optimistic_CTR)
-                else:
-                    bid = self.bidder.bid(value, context, estimated_CTR)
+                bid = self.bidder.bid(value, context, optimistic_CTR)
             elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
                 mean_CTR = self.allocator.estimate_CTR(context, TS=False)
                 estimated_CTR = mean_CTR[item]
-                if self.use_optimistic_value:
-                    bid = self.bidder.bid(value, context, optimistic_CTR)
-                else:
-                    bid = self.bidder.bid(value, context, estimated_CTR)
+                bid = self.bidder.bid(value, context, optimistic_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
         return item, bid, estimated_CTR, optimistic_CTR
 
-    def update(self, context, item, bid, won, outcome, estimated_CTR, reward):
+    def update(self):
         # Update response model with data from winning bids
-        self.allocator.update(context[won], item[won], outcome[won], self.name)
+        states, items, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
+        contexts = states[:, :self.context_dim]
+        self.allocator.update(contexts[wins], items[wins], outcomes[wins])
 
         # Update bidding model with all data
-        self.bidder.update(context, bid, outcome, self.name)
+        self.bidder.update(contexts, biddings, wins)
+

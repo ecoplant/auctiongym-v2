@@ -1,0 +1,19 @@
+{
+    "name": "Logistic-Default",
+    "allocator":{
+        "type": "LogisticAllocator",
+        "kwargs":{
+            "lr": 1e-3,
+            "mode": "\"UCB\"",
+            "c": 1.0
+        }
+    },
+    "bidder":{
+        "type": "DefaultBidder",
+        "kwargs":{
+            "lr": 1e-3
+        }
+    },
+    "exploration_length": 1000,
+    "output_dir": "results/"
+}

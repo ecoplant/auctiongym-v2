@@ -14,7 +14,7 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
 class Auction(gym.Env):
-    def __init__(self, rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist):
+    def __init__(self, rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist, horizon, budget):
         super.__init__()
         self.rng = rng
         self.agent = agent
@@ -37,6 +37,9 @@ class Auction(gym.Env):
         self.context_dist = context_dist # Gaussian, Bernoulli, Uniform
         self.gaussian_var = 1.0
         self.bernoulli_p = 0.5
+
+        self.horizon = horizon
+        self.budget = budget
     
     def generate_context(self):
         if self.context_dist=='Gaussian':
@@ -48,8 +51,8 @@ class Auction(gym.Env):
         return np.clip(context, CONTEXT_LOW, CONTEXT_HIGH)
     
     def reset(self):
-        self.context = self.generate_context()
-        return self.context
+        context = self.generate_context()
+        return np.concatenate(context, np.array([self.budget]), np.array([self.horizon]))
 
     def setp(self, action):
         item = action['item']
@@ -58,26 +61,14 @@ class Auction(gym.Env):
         win = self.rng.binomial(1, winrate)
         CTR = self.CTR_model(self.context)
         outcome = self.rng.binomial(1, CTR[item])
-        reward = self.item_values[item] * outcome - win * bid.item()
-
-        max_value = np.max(self.item_values)
-        b_grid = np.linspace(0.0, 1.0*max_value, 200)
-        p_grid = self.winrate_model(self.context, b_grid)
-        expected_value = self.item_values * CTR
-        utility = p_grid * (np.max(expected_value) - b_grid)
+        reward = self.item_values[item] * outcome
 
         info = {
-            'true_CTR' : CTR[item],
             'win' : win,
             'outcome' : outcome,
-            'optimal_reward' : np.max(utility),
-            'regret' : np.max(utility) - winrate * (expected_value[item] - bid.item()),
-            'bidding_error' : bid.item() - b_grid[np.argmax(utility)],
-            'optimal_selection' : item==np.argmax(expected_value)
+            'optimal_selection' : item==np.argmax(self.item_values * CTR)
         }
-
-        self.context = self.generate_context()
-        return self.context, reward, False, False, info
-    
-    def compute_winrate(self, context, bid):
-        return self.winrate_model(context, bid)
+        self.budget -= win * bid.item()
+        self.horizon -= 1
+        context = self.generate_context()
+        return np.concatenate(context, np.array([self.budget]), np.array([self.horizon])), reward, self.budget<1e-3, self.horizon==0, info

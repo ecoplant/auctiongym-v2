@@ -43,7 +43,7 @@ class DefaultBidder(Bidder):
 
         self.winrate_model = NeuralWinRateEstimator(context_dim).to(self.device)
         self.noise = noise
-        # self.initialize()
+        self.initialize()
     
     def initialize(self):
         X = []
@@ -83,8 +83,7 @@ class DefaultBidder(Bidder):
         estimated_utility = prob_win * (expected_value - b_grid)
         bid = b_grid[np.argmax(estimated_utility)]
         
-        bid = np.clip(bid+self.rng.normal(0,self.noise)*value, 0.1*value, 1.5*value)
-
+        bid = np.clip(bid+self.rng.normal(0,self.noise)*value, 0.0, 1.0*value)
         return bid
 
     def update(self, context, bid, won, name):

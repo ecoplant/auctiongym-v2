@@ -49,18 +49,6 @@ class LogisticAllocator(Allocator):
             self.model = LogisticRegression(self.d, self.item_features, self.mode, self.rng, self.lr, nu=self.nu).to(self.device)
         else:
             self.model = LogisticRegression(self.d, self.item_features, self.mode, self.rng, self.lr).to(self.device)
-        # self.initialize()
-    
-    def initialize(self):
-        X = []
-        for i in range(1000):
-            context = self.rng.normal(0.0, 1.0, size=self.d)
-            X.append(context/np.sqrt(np.sum(context**2)))
-        X = np.stack(X)
-        y = np.ones((1000,))
-        A = self.rng.choice(self.K, (1000,))
-
-        self.update(X, A, y, "")
 
     def update(self, contexts, items, outcomes, name):
         self.model.update(contexts, items, outcomes, name)
