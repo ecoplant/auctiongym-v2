@@ -50,8 +50,8 @@ class LogisticAllocator(Allocator):
         else:
             self.model = LogisticRegression(self.d, self.item_features, self.mode, self.rng, self.lr).to(self.device)
 
-    def update(self, contexts, items, outcomes, name):
-        self.model.update(contexts, items, outcomes, name)
+    def update(self, contexts, items, outcomes):
+        self.model.update(contexts, items, outcomes)
 
     def estimate_CTR(self, context, UCB=False, TS=False):
         return self.model.estimate_CTR(context, UCB, TS)

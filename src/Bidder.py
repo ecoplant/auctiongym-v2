@@ -58,7 +58,7 @@ class DefaultBidder(Bidder):
         X = torch.Tensor(self.X_init).to(self.device)
         y = torch.Tensor(self.y_init).to(self.device)
 
-        epochs = 100000
+        epochs = 10000
         optimizer = torch.optim.Adam(self.winrate_model.parameters(), lr=self.lr, weight_decay=1e-6, amsgrad=True)
         MSE = nn.MSELoss()
         self.winrate_model.train()
@@ -86,7 +86,7 @@ class DefaultBidder(Bidder):
         bid = np.clip(bid+self.rng.normal(0,self.noise)*value, 0.0, 1.0*value)
         return bid
 
-    def update(self, context, bid, won, name):
+    def update(self, context, bid, won):
         X = np.hstack((context.reshape(-1,self.context_dim), bid.reshape(-1, 1)))
         N = X.shape[0]
         X = torch.Tensor(X).to(self.device)

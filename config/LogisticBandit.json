@@ -1,5 +1,6 @@
 {
     "name": "Logistic-Default",
+    "type": "Bandit",
     "allocator":{
         "type": "LogisticAllocator",
         "kwargs":{

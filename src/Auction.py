@@ -15,7 +15,7 @@ def sigmoid(x):
 
 class Auction(gym.Env):
     def __init__(self, rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist, horizon, budget):
-        super.__init__()
+        super().__init__()
         self.rng = rng
         self.agent = agent
 
@@ -23,6 +23,8 @@ class Auction(gym.Env):
         self.winrate_model = winrate_model
         self.item_features = item_features
         self.item_values = item_values
+        self.context_dim = item_features.shape[1]
+        self.num_items = item_features.shape[0]
 
         self.context_low = CONTEXT_LOW * np.ones(self.context_dim)
         self.context_high = CONTEXT_HIGH * np.ones(self.context_dim)
@@ -51,10 +53,10 @@ class Auction(gym.Env):
         return np.clip(context, CONTEXT_LOW, CONTEXT_HIGH)
     
     def reset(self):
-        context = self.generate_context()
-        return np.concatenate(context, np.array([self.budget]), np.array([self.horizon]))
+        self.context = self.generate_context()
+        return np.concatenate([self.context, np.array([self.budget]), np.array([self.horizon])]), {}
 
-    def setp(self, action):
+    def step(self, action):
         item = action['item']
         bid = action['bid']
         winrate = self.winrate_model(self.context, bid)
@@ -70,5 +72,5 @@ class Auction(gym.Env):
         }
         self.budget -= win * bid.item()
         self.horizon -= 1
-        context = self.generate_context()
-        return np.concatenate(context, np.array([self.budget]), np.array([self.horizon])), reward, self.budget<1e-3, self.horizon==0, info
+        self.context = self.generate_context()
+        return np.concatenate([self.context, np.array([self.budget]), np.array([self.horizon])]), reward, self.budget<1e-3, self.horizon==0, info

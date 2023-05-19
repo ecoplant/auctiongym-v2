@@ -10,7 +10,7 @@ import time
 import numpy as np
 from gym.spaces import Dict, Box
 
-from Agent import Agent
+from Agent import *
 from Allocator import *
 from Auction import Auction
 from Bidder import * 
@@ -41,18 +41,18 @@ class Buffer:
         return np.array(self.states), np.array(self.items), np.array(self.biddings), np.array(self.rewards),\
               np.array(self.next_states), np.array(self.d, dtype=bool), np.array(self.wins, dtype=bool), np.array(self.outcomes, dtype=bool)
 
-def draw_features(rng, num_runs, feature_dim, agent_configs):
+def draw_features(rng, num_runs, feature_dim):
     run2item_features = {}
     run2item_values = {}
 
     for run in range(num_runs):
         temp = []
-        for k in range(agent_config['num_items']):
+        for k in range(training_config['num_items']):
             feature = rng.normal(0.0, 1.0, size=feature_dim)
             temp.append(feature)
         run2item_features[run] = np.stack(temp)
 
-        run2item_values[run] = np.ones((agent_config['num_items'],))
+        run2item_values[run] = np.ones((training_config['num_items'],))
 
     return run2item_features, run2item_values
 
@@ -80,6 +80,11 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
         winrate_param = (w1, b1, w2, b2)
 
     return CTR_param, winrate_param
+
+def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer, agent_config):
+    if agent_config['type']=='Bandit':
+        return Bandit(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+
 
 if __name__ == '__main__':
     # Parse commandline arguments
@@ -124,7 +129,7 @@ if __name__ == '__main__':
 
     # Parse configuration file
     output_dir = agent_config['output_dir']
-    output_dir = output_dir + time.strftime('%y%m%d-%H%M%S')
+    output_dir = output_dir + time.strftime('%y%m%d-%H%M%S') + '/'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
@@ -145,7 +150,7 @@ if __name__ == '__main__':
     # num_records = int(num_episodes / record_interval)
     # CTR_RMSE = np.zeros((num_runs, num_records))
 
-    run2item_features, run2item_values = draw_features(rng, num_runs, context_dim, feature_dim, agent_config)
+    run2item_features, run2item_values = draw_features(rng, num_runs, feature_dim)
 
     for run in range(num_runs):
         item_features = run2item_features[run]
@@ -157,53 +162,52 @@ if __name__ == '__main__':
 
         buffer = Buffer()
 
-        agent = Agent(rng, agent_config['name'], item_features, item_values, context_dim, buffer, agent_config)
+        agent = instantiate_agent(rng, agent_config['name'], item_features, item_values, context_dim, buffer, agent_config)
         auction = Auction(rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist, horizon, budget)
 
         t = 0
         for i in tqdm(range(num_episodes), desc=f'run {run}'):
-            state, _ = auction.reset()
+            s, _ = auction.reset()
             done = truncated = False
             start = t
             episode_reward = 0
             episode_win = 0
             episode_optimal_selection = 0
             while not (done or truncated):
-                item, bidding = agent.bid(state)
-                action = {'item' : item, 'bid' : np.array([bidding])}
-                next_state, reward, done, truncated, info = auction.step(action)
-                buffer.append(state, item, bidding, reward, next_state, (done or truncated), info['win'], info['outcome'])
+                item, bidding = agent.bid(s)
+                a = {'item' : item, 'bid' : np.array([bidding])}
+                s_, r, done, truncated, info = auction.step(a)
+                buffer.append(s, item, bidding, r, s_, (done or truncated), info['win'], info['outcome'])
                 t += 1
-                episode_reward += reward
+                episode_reward += r
                 episode_win += float(info['win'])
                 episode_optimal_selection += float(info['optimal_selection'])
+                s = s_
             
             if (i+1)%update_interval==0:
                 agent.update()
 
             reward[run,i] = episode_reward
             win_rate[run,i] = episode_win / (t - start)
-            optimal_selection = episode_optimal_selection / (t - start)
-
-    experiment_id = f"CTR:{CTR_mode}_WR:{winrate_mode}_alloc:{allocator_type}_bid:{bidder_type}"
+            optimal_selection[run,i] = episode_optimal_selection / (t - start)
 
     reward = average(reward, record_interval)
-    optimal_selection = average(optimal_selection.astype(float), record_interval)
+    optimal_selection = average(optimal_selection, record_interval)
     prob_win = average(win_rate, record_interval)
 
     cumulative_reward = np.cumsum(reward, axis=1)
 
     reward_df = numpy2df(reward, 'Reward')
-    reward_df.to_csv(experiment_id + '/reward.csv', index=False)
-    plot_measure(reward_df, 'Reward', record_interval, experiment_id)
+    reward_df.to_csv(output_dir + '/reward.csv', index=False)
+    plot_measure(reward_df, 'Reward', record_interval, output_dir)
 
     cumulative_reward_df = numpy2df(cumulative_reward, 'Cumulative Reward')
-    plot_measure(cumulative_reward_df, 'Cumulative Reward', record_interval, experiment_id)
+    plot_measure(cumulative_reward_df, 'Cumulative Reward', record_interval, output_dir)
 
     optimal_selection_df = numpy2df(optimal_selection, 'Optimal Selection Rate')
-    optimal_selection_df.to_csv(experiment_id + '/optimal_selection_rate.csv', index=False)
-    plot_measure(optimal_selection_df, 'Optimal Selection Rate', record_interval, experiment_id)
+    optimal_selection_df.to_csv(output_dir + '/optimal_selection_rate.csv', index=False)
+    plot_measure(optimal_selection_df, 'Optimal Selection Rate', record_interval, output_dir)
 
     prob_win_df = numpy2df(prob_win, 'Probability of Winning')
-    prob_win_df.to_csv(experiment_id + '/prob_win.csv', index=False)
-    plot_measure(prob_win_df, 'Probability of Winning', record_interval, experiment_id)
+    prob_win_df.to_csv(output_dir + '/prob_win.csv', index=False)
+    plot_measure(prob_win_df, 'Probability of Winning', record_interval, output_dir)

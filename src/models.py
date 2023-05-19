@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
@@ -9,7 +10,7 @@ class Logistic:
     def __init__(self, param):
         self.w = param
     
-    def forward(self, x):
+    def __call__(self, x):
         return sigmoid(x @ self.w / np.sqrt(len(x)))
 
 class MLP:
@@ -98,7 +99,7 @@ class LogisticRegression(nn.Module):
     def forward(self, X, A):
         return torch.sigmoid(torch.sum(F.linear(X, self.M.T)*self.items[A], dim=1))
     
-    def update(self, contexts, items, outcomes, name):
+    def update(self, contexts, items, outcomes):
         X = torch.Tensor(contexts).to(self.device)
         A = torch.LongTensor(items).to(self.device)
         y = torch.Tensor(outcomes).to(self.device)

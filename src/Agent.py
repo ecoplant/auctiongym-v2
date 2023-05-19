@@ -27,14 +27,14 @@ class Agent:
     def bid(self, context):
         pass
 
-class Bandit:
+class Bandit(Agent):
     ''' A bandit-style agent '''
 
-    def __init__(self, rng, name, item_features, item_values, context_dim, config):
-        super.__init__(rng, name, item_features, item_values, context_dim)
+    def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
+        super().__init__(rng, name, item_features, item_values, context_dim, buffer)
 
-        self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
-        self.bidder = eval(f"{config['bidder']['type']}(rng=rng,  context_dim=context_dim, num_items=self.num_items{parse_kwargs(config['bidder']['kwargs'])})")
+        self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features,  num_items=self.num_items, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
+        self.bidder = eval(f"{config['bidder']['type']}(rng=rng,  context_dim=context_dim{parse_kwargs(config['bidder']['kwargs'])})")
 
         self.exploration_length = config['exploration_length']
 
@@ -55,13 +55,16 @@ class Bandit:
 
         return best_item, estim_CTRs[best_item]
 
-    def bid(self, context, value=None, prob_win=None, b_grid=None):
+    def bid(self, state, value=None, prob_win=None, b_grid=None):
         self.clock += 1
+        context = state[:self.context_dim]
         item, estimated_CTR = self.select_item(context)
         optimistic_CTR = estimated_CTR
         value = self.item_values[item]
 
-        if isinstance(self.bidder, OracleBidder):
+        if self.clock < self.exploration_length:
+            bid = value
+        elif isinstance(self.bidder, OracleBidder):
             bid = self.bidder.bid(value, estimated_CTR, prob_win, b_grid)
         else:
             if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
@@ -74,7 +77,7 @@ class Bandit:
                 bid = self.bidder.bid(value, context, optimistic_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
-        return item, bid, estimated_CTR, optimistic_CTR
+        return item, bid
 
     def update(self):
         # Update response model with data from winning bids
