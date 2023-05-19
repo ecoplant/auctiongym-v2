@@ -77,6 +77,7 @@ class Bandit(Agent):
                 bid = self.bidder.bid(value, context, optimistic_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
+        bid = np.clip(bid, 0.0, state[-2])
         return item, bid
 
     def update(self):

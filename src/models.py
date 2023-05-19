@@ -26,7 +26,7 @@ class Bilinear:
         self.M = param
     
     def __call__(self, context, features):
-        return sigmoid(features @ self.M.T @ context / np.sqrt(len(context)*features.shape[1])).reshape(-1)
+        return sigmoid(features @ self.M.T @ context / np.sqrt(len(context))).reshape(-1)
 
 class Winrate:
     def __init__(self, mode, context_dim, param=None, agents=None):

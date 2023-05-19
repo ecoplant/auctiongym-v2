@@ -54,7 +54,9 @@ class Auction(gym.Env):
     
     def reset(self):
         self.context = self.generate_context()
-        return np.concatenate([self.context, np.array([self.budget]), np.array([self.horizon])]), {}
+        self.remaining_steps = self.horizon
+        self.remaining_budget = self.budget
+        return np.concatenate([self.context, np.array([self.remaining_budget]), np.array([self.remaining_steps])]), {}
 
     def step(self, action):
         item = action['item']
@@ -70,7 +72,7 @@ class Auction(gym.Env):
             'outcome' : outcome,
             'optimal_selection' : item==np.argmax(self.item_values * CTR)
         }
-        self.budget -= win * bid.item()
-        self.horizon -= 1
+        self.remaining_budget -= win * bid.item()
+        self.remaining_steps -= 1
         self.context = self.generate_context()
-        return np.concatenate([self.context, np.array([self.budget]), np.array([self.horizon])]), reward, self.budget<1e-3, self.horizon==0, info
+        return np.concatenate([self.context, np.array([self.remaining_budget]), np.array([self.remaining_steps])]), reward, self.remaining_budget<1e-3, self.remaining_steps==0, info
