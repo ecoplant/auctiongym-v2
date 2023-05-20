@@ -40,6 +40,14 @@ class Buffer:
     def numpy(self):
         return np.array(self.states), np.array(self.items), np.array(self.biddings), np.array(self.rewards),\
               np.array(self.next_states), np.array(self.d, dtype=bool), np.array(self.wins, dtype=bool), np.array(self.outcomes, dtype=bool)
+    
+    def sample(self, batch_size):
+        if batch_size > len(self.states):
+            self.numpy()
+        else:
+            inds = np.random.choice(len(self.states), batch_size, replace = False)
+            return np.array([self.states[idx] for idx in inds]), np.array([self.items[idx] for idx in inds]), np.array([self.biddings[idx] for idx in inds]), \
+                np.array([self.rewards[idx] for idx in inds]), np.array([self.next_states[idx] for idx in inds]), np.array([self.d[idx] for idx in inds], dtype=bool)
 
 def draw_features(rng, num_runs, feature_dim):
     run2item_features = {}
@@ -84,6 +92,8 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
 def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer, agent_config):
     if agent_config['type']=='Bandit':
         return Bandit(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    elif agent_config['type']=='DQN':
+        return DQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 
 if __name__ == '__main__':
@@ -119,10 +129,6 @@ if __name__ == '__main__':
     # CTR, winrate model
     CTR_mode = training_config['CTR_mode']
     winrate_mode = training_config['winrate_mode']
-
-    # allocator, bidder type
-    allocator_type = agent_config['allocator']['type']
-    bidder_type = agent_config['bidder']['type']
 
     os.environ["CUDA_VISIBLE_DEVICES"]= args.cuda
     print("running in {}".format('cuda' if torch.cuda.is_available() else 'cpu'))

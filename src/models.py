@@ -220,3 +220,15 @@ class NeuralWinRateEstimator(nn.Module):
             hidden = torch.relu(self.linear1(x))
             logit = self.linear2(hidden)
         return self.BCE(logit, y)
+    
+class QNet(nn.Module):
+    def __init__(self, state_action_size, fc1_size, fc2_size):
+        super().__init__()
+        self.fc1 = nn.Linear(state_action_size, fc1_size)
+        self.fc2 = nn.Linear(fc1_size, fc2_size)
+        self.fc3 = nn.Linear(fc2_size, 1)
+    
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)

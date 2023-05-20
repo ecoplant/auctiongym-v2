@@ -1,5 +1,7 @@
 import numpy as np
+import torch.optim as optim
 
+from models import *
 from Allocator import *
 from Bidder import *
 
@@ -77,7 +79,6 @@ class Bandit(Agent):
                 bid = self.bidder.bid(value, context, optimistic_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
-        bid = np.clip(bid, 0.0, state[-2])
         return item, bid
 
     def update(self):
@@ -89,3 +90,50 @@ class Bandit(Agent):
         # Update bidding model with all data
         self.bidder.update(contexts, biddings, wins)
 
+class DQN(Agent):
+    ''' A MDP style agent '''
+
+    def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
+        super().__init__(rng, name, item_features, item_values, context_dim, buffer)
+
+        self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size'])
+        self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size'])
+
+        self.exploration_length = config['exploration_length']
+        self.optimizer = optim.Adam(self.local_network.parameters(), lr = 5e-4)
+        self.batch_size = config['batch_size']
+        self.tau = config['tau']
+    
+    def bid(self, state):
+        self.clock += 1
+        n_values_search = int(100*np.max(self.item_values))
+        b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+        x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
+                       np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)]))
+        index = np.argmax(self.local_network(x).detach().numpy())
+        item = index % self.num_items
+        bid = b_grid[int(index / self.num_items)]
+        if self.clock < self.exploration_length:
+            bid = self.item_values[item]
+        return item, bid
+
+    def update(self):
+        # Update response model with data from winning bids
+        criterion = nn.MSELoss()
+        self.local_network.train()
+        self.target_network.eval()
+        states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
+        predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)]))).squeeze()
+        with torch.no_grad():
+            n_values_search = int(100*np.max(self.item_values))
+            b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+            tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
+            x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                        np.tile(tmp, (self.batch_size, 1))]))
+            labels = rewards + np.max(self.target_network(x).detach().numpy())
+        loss = criterion(predicted_targets, torch.tensor(labels, dtype=torch.float32))
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
+            target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
