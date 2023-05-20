@@ -1,10 +1,14 @@
 {
     "name": "DQN",
     "type": "DQN",
-    "fc1_size": 10,
-    "fc2_size": 10,
+    "fc1_size": 24,
+    "fc2_size": 12,
+    "update_nums": 100,
+    "epsilon_initial": 0.999,
+    "epsilon_decay": 0.999,
+    "epsilon_final": 0.001,
     "batch_size": 64,
-    "tau": 0.01,
+    "tau": 0.001,
     "exploration_length": 1000,
     "output_dir": "results/"
 }
