@@ -1,8 +1,8 @@
 {
     "random_seed": 42,
     "num_runs": 1,
-    "num_episodes" : 10000,
-    "horizon": 100,
+    "num_episodes" : 5000,
+    "horizon": 40,
     "budget": 20,
     "record_interval": 100,
     "update_interval": 10,

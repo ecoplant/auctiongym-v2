@@ -32,13 +32,12 @@ class OracleAllocator(Allocator):
 
 
 class LogisticAllocator(Allocator):
-    def __init__(self, rng, item_features, lr, context_dim, num_items, mode, c=0.0, eps=0.1, nu=0.0):
+    def __init__(self, rng, item_features, lr, context_dim, mode, c=0.0, eps=0.1, nu=0.0):
         super().__init__(rng, item_features)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.mode = mode
         self.lr = lr
 
-        self.K = num_items
         self.d = context_dim
         self.c = c
         self.eps = eps

@@ -15,6 +15,6 @@
             "lr": 1e-3
         }
     },
-    "exploration_length": 1000,
+    "exploration_length": 100,
     "output_dir": "results/"
 }

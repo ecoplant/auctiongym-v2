@@ -1,0 +1,24 @@
+{
+    "name": "NeuralEps-Default",
+    "type": "Bandit",
+    "allocator":{
+        "type": "NeuralAllocator",
+        "kwargs":{
+            "lr": 1e-3,
+            "batch_size": 512,
+            "weight_decay": 1e-6,
+            "latent_dim": 32,
+            "num_epochs": 10,
+            "mode": "\"Epsilon-greedy\"",
+            "eps": 0.01
+        }
+    },
+    "bidder":{
+        "type": "DefaultBidder",
+        "kwargs":{
+            "lr": 1e-3
+        }
+    },
+    "exploration_length": 100,
+    "output_dir": "results/"
+}
