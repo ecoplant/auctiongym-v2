@@ -1,0 +1,10 @@
+{
+    "name": "DQN",
+    "type": "DQN",
+    "fc1_size": 10,
+    "fc2_size": 10,
+    "batch_size": 64,
+    "tau": 0.01,
+    "exploration_length": 1000,
+    "output_dir": "results/"
+}
