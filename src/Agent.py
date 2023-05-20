@@ -33,7 +33,7 @@ class Bandit(Agent):
     def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
         super().__init__(rng, name, item_features, item_values, context_dim, buffer)
 
-        self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features,  num_items=self.num_items, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
+        self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
         self.bidder = eval(f"{config['bidder']['type']}(rng=rng,  context_dim=context_dim{parse_kwargs(config['bidder']['kwargs'])})")
 
         self.exploration_length = config['exploration_length']
@@ -63,7 +63,7 @@ class Bandit(Agent):
         value = self.item_values[item]
 
         if self.clock < self.exploration_length:
-            bid = value
+            bid = value * self.rng.uniform(0,1)
         elif isinstance(self.bidder, OracleBidder):
             bid = self.bidder.bid(value, estimated_CTR, prob_win, b_grid)
         else:

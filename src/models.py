@@ -163,6 +163,25 @@ class LogisticRegression(nn.Module):
     
     def unflatten(self, tensor, x, y):
         return torch.reshape(tensor, (x, y))
+    
+class NeuralRegression(nn.Module):
+    def __init__(self, input_dim, latent_dim):
+        super().__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.d = input_dim
+        self.h = latent_dim
+        self.feature = nn.Linear(self.d, self.h)
+        self.head = nn.Linear(self.h, 1)
+        self.BCE = nn.BCELoss()
+        self.eval()
+
+    def forward(self, x):
+        x = torch.relu(self.feature(x))
+        return torch.sigmoid(self.head(x))
+
+    def loss(self, predictions, labels):
+        return self.BCE(predictions, labels)
+
 
 # ==========winrate estimators==========
 
