@@ -137,3 +137,89 @@ class DQN(Agent):
         self.optimizer.step()
         for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
             target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+
+class QBid(Agent):
+    ''' CVR estimator + DQN bidder '''
+
+    def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
+        super().__init__(rng, name, item_features, item_values, context_dim, buffer)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
+
+        self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+        self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+
+        self.exploration_length = config['exploration_length']
+        self.optimizer = optim.Adam(self.local_network.parameters(), lr = config['lr'])
+        self.batch_size = config['batch_size']
+        self.num_grad_steps = config['num_grad_steps']
+        self.tau = config['tau']
+
+        self.estimated_CTRs = []
+    
+    def select_item(self, context):
+        # Estimate CTR for all items
+        if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
+            estim_CTRs = self.allocator.estimate_CTR(context, UCB=True)
+        elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
+            estim_CTRs = self.allocator.estimate_CTR(context, TS=True)
+        else:
+            estim_CTRs = self.allocator.estimate_CTR(context)
+        # Compute value if clicked
+        estim_values = estim_CTRs * self.item_values
+        best_item = np.argmax(estim_values)
+        if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='Epsilon-greedy':
+            if self.rng.uniform(0,1)<self.allocator.eps:
+                best_item = self.rng.choice(self.num_items, 1).item()
+
+        return best_item, estim_CTRs[best_item]
+    
+    def bid(self, state):
+        self.clock += 1
+        context = state[:self.context_dim]
+        item, estimated_CTR = self.select_item(context)
+        self.estimated_CTRs.append(estimated_CTR)
+        value = self.item_values[item]
+
+        if self.clock < self.exploration_length:
+            bid = value * self.rng.uniform(0,1)
+        else:
+            n_values_search = int(100*value)
+            b_grid = np.linspace(0, 1.5*value, n_values_search)
+            with torch.no_grad():
+                x = torch.Tensor(np.hstack([np.tile(state, (n_values_search, 1)), np.tile(self.items[item], (n_values_search, 1)), \
+                            b_grid.reshape(-1, 1)])).to(self.device)
+                index = np.argmax(self.local_network(x).numpy(force=True))
+            bid = b_grid[index]
+        
+        return item, bid
+
+    def update(self):
+        states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
+        contexts = states[:, :self.context_dim]
+        self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins])
+
+        if len(self.buffer.states)<self.batch_size:
+            return
+        
+        criterion = nn.MSELoss()
+        self.local_network.train()
+        self.target_network.eval()
+
+        for i in range(self.num_grad_steps):
+            states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
+            predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+            with torch.no_grad():
+                n_values_search = int(100*np.max(self.item_values))
+                b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
+                x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                        np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
+            loss = criterion(predicted_targets, labels)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        
+        for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
+            target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)

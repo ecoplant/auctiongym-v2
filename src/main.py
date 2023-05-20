@@ -94,6 +94,8 @@ def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer
         return Bandit(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='DQN':
         return DQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    elif agent_config['type']=='QBid':
+        return QBid(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 
 if __name__ == '__main__':

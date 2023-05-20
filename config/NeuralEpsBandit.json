@@ -8,7 +8,7 @@
             "batch_size": 512,
             "weight_decay": 1e-6,
             "latent_dim": 32,
-            "num_epochs": 50,
+            "num_epochs": 10,
             "mode": "\"Epsilon-greedy\"",
             "eps": 0.01
         }
@@ -19,6 +19,6 @@
             "lr": 1e-3
         }
     },
-    "exploration_length": 1000,
+    "exploration_length": 100,
     "output_dir": "results/"
 }

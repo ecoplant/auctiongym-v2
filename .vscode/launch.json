@@ -9,7 +9,7 @@
             "type": "python",
             "request": "launch",
             "program": "src/main.py",
-            "args": ["config/LogisticBandit.json"],
+            "args": ["config/DQN.json"],
             "console": "integratedTerminal",
             "justMyCode": true
         }
