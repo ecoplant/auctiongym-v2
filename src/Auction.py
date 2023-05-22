@@ -65,7 +65,7 @@ class Auction(gym.Env):
         win = self.rng.binomial(1, winrate)
         CTR = self.CTR_model(self.context)
         outcome = self.rng.binomial(1, CTR[item])
-        reward = self.item_values[item] * outcome
+        reward = self.item_values[item] * outcome * win
 
         info = {
             'win' : win,

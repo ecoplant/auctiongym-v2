@@ -10,8 +10,8 @@ class Bidder:
     def __init__(self, rng):
         self.rng = rng
 
-    def update(self, context, bid, won, name):
-        raise NotImplementedError
+    def update(self, context, bid, won):
+        pass
     
 class TruthfulBidder(Bidder):
     def __init__(self, rng, noise=0.1):
@@ -23,7 +23,7 @@ class TruthfulBidder(Bidder):
         return bid.item()
 
 class OracleBidder(Bidder):
-    def __init__(self, rng):
+    def __init__(self, rng, context_dim):
         super().__init__(rng)
 
     def bid(self, value, estimated_CTR, prob_win, b_grid):
@@ -35,14 +35,17 @@ class OracleBidder(Bidder):
         return bid
 
 class DefaultBidder(Bidder):
-    def __init__(self, rng, lr, context_dim, noise=0.0):
+    def __init__(self, rng, lr, context_dim, noise=0.0, num_grad_steps=10, batch_size=512):
         super().__init__(rng)
         self.lr = lr
         self.context_dim = context_dim
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.winrate_model = NeuralWinRateEstimator(context_dim).to(self.device)
+        self.optimizer = torch.optim.Adam(self.winrate_model.parameters(), lr=self.lr)
         self.noise = noise
+        self.num_grad_steps = num_grad_steps
+        self.batch_size = batch_size
         self.initialize()
     
     def initialize(self):
@@ -87,21 +90,20 @@ class DefaultBidder(Bidder):
         return bid
 
     def update(self, context, bid, won):
-        X = np.hstack((context.reshape(-1,self.context_dim), bid.reshape(-1, 1)))
-        N = X.shape[0]
-        X = torch.Tensor(X).to(self.device)
-
-        y = won.astype(np.float32).reshape(-1,1)
-        y = torch.Tensor(y).to(self.device)
+        N = context.shape[0]
+        batch_size = min(N, self.batch_size)
 
         self.winrate_model.train()
-        epochs = 100
-        optimizer = torch.optim.Adam(self.winrate_model.parameters(), lr=self.lr, weight_decay=1e-6, amsgrad=True)
-        for epoch in range(int(epochs)):
-            optimizer.zero_grad()
+        for _ in range(self.num_grad_steps):
+            ind = self.rng.choice(N, size=batch_size, replace=False)
+            X = np.hstack((context[ind].reshape(-1,self.context_dim), bid[ind].reshape(-1, 1)))
+            X = torch.Tensor(X).to(self.device)
+            y = won[ind].astype(np.float32).reshape(-1,1)
+            y = torch.Tensor(y).to(self.device)
+            self.optimizer.zero_grad()
             loss = self.winrate_model.loss(X, y)
             loss.backward()
-            optimizer.step()
+            self.optimizer.step()
         self.winrate_model.eval()
 
 

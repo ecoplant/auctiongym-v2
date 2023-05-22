@@ -76,9 +76,15 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
         CTR_param = (w1, b1, w2, b2)
     
     if winrate_mode=='simulation':
-        raise NotImplementedError
+        winrate_param = []
+        for _ in range(2):
+            temp = []
+            for _ in range(training_config['num_items']):
+                feature = rng.normal(0.0, 1.0, size=feature_dim)
+                temp.append(feature)
+            winrate_param.append(np.stack(temp))
     elif winrate_mode=='logistic':
-        winrate_param = rng.normal(0.0, 1.0, size=(context_dim+1,))
+        winrate_param = np.concatenate([rng.normal(0.0, 1.0, size=(context_dim,)), np.array([1.0])])
     elif winrate_mode=='MLP':
         d = context_dim + 1
         w1 = rng.normal(0.0, 1.0, size=(d, d))
@@ -96,6 +102,8 @@ def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer
         return DQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='QBid':
         return QBid(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    elif agent_config['type']=='TD3':
+        return TD3(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 
 if __name__ == '__main__':
@@ -150,6 +158,7 @@ if __name__ == '__main__':
     # optimal_bandit_reward = np.zeros((num_runs, num_episodes))
     # optimal_bandit_win_rate = np.zeros((num_runs, num_episodes))
     optimal_selection = np.zeros((num_runs, num_episodes))
+    episode_length = np.zeros((num_runs, num_episodes))
 
     # estimated_CTR = np.zeros((num_runs, num_episodes))
 
@@ -166,12 +175,40 @@ if __name__ == '__main__':
 
         CTR_param, winrate_param = set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim)
         CTR_model = CTR(CTR_mode, context_dim, item_features, CTR_param)
-        winrate_model = Winrate(winrate_mode, context_dim, winrate_param)
+        if winrate_mode!='simulation':
+            winrate_model = Winrate(winrate_mode, context_dim, winrate_param)
+        else:
+            winrate_model = Winrate(winrate_mode, context_dim, winrate_param, CTR_model)
+        
+        # winrates = []
+        # for _ in range(10):
+        #     context = np.random.normal(0.0, 1.0, size=context_dim)
+        #     b_grid = np.arange(0.0, 1.1, 0.1)
+        #     temp = []
+        #     for i in range(10):
+        #         temp.append(winrate_model(context, np.array([b_grid[i]])).item())
+        #     winrates.append(np.array(temp))
+        # winrates = np.stack(winrates)
+        # df_rows = {'context': [], 'bid': [], 'winrate': []}
+        # for (context,bid), winrate in np.ndenumerate(winrates):
+        #     df_rows['context'].append(context)
+        #     df_rows['bid'].append(bid)
+        #     df_rows['winrate'].append(winrate)
+        # winrates = pd.DataFrame(df_rows)
+        # winrates.to_csv('results/winrate.csv')
+
+        # raise NotImplementedError
 
         buffer = Buffer()
 
         agent = instantiate_agent(rng, agent_config['name'], item_features, item_values, context_dim, buffer, agent_config)
         auction = Auction(rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist, horizon, budget)
+        agent.auction = auction
+        try:
+            if isinstance(agent.allocator, OracleAllocator):
+                agent.allocator.set_CTR_model(auction.CTR_model.model.M)
+        except:
+            pass
 
         t = 0
         for i in tqdm(range(num_episodes), desc=f'run {run}'):
@@ -198,6 +235,7 @@ if __name__ == '__main__':
             reward[run,i] = episode_reward
             win_rate[run,i] = episode_win / (t - start)
             optimal_selection[run,i] = episode_optimal_selection / (t - start)
+            episode_length[run,i] = t - start
 
     reward = average(reward, record_interval)
     optimal_selection = average(optimal_selection, record_interval)
@@ -219,3 +257,7 @@ if __name__ == '__main__':
     prob_win_df = numpy2df(prob_win, 'Probability of Winning')
     prob_win_df.to_csv(output_dir + '/prob_win.csv', index=False)
     plot_measure(prob_win_df, 'Probability of Winning', record_interval, output_dir)
+
+    episode_length_df = numpy2df(episode_length, 'Episode Length')
+    episode_length_df.to_csv(output_dir + '/episode_length.csv', index=False)
+    plot_measure(episode_length_df, 'Episode Length', record_interval, output_dir)

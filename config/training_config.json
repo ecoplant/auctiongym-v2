@@ -1,15 +1,15 @@
 {
     "random_seed": 42,
-    "num_runs": 1,
-    "num_episodes" : 5000,
-    "horizon": 40,
-    "budget": 20,
-    "record_interval": 50,
-    "update_interval": 10,
+    "num_runs": 3,
+    "num_episodes" : 1000,
+    "horizon": 20,
+    "budget": 10,
+    "record_interval": 10,
+    "update_interval": 1,
     "context_dim": 5,
     "feature_dim": 5,
     "num_items": 10,
     "context_distribution": "Gaussian",
     "CTR_mode": "bilinear",
-    "winrate_mode": "logistic"
+    "winrate_mode": "simulation"
 }

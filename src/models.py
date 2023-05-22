@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import copy
+from scipy.stats import norm
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
@@ -29,11 +31,17 @@ class Bilinear:
         return sigmoid(features @ self.M.T @ context / np.sqrt(len(context))).reshape(-1)
 
 class Winrate:
-    def __init__(self, mode, context_dim, param=None, agents=None):
+    def __init__(self, mode, context_dim, param=None, CTR_model=None):
         self.mode = mode
         self.context_dim = context_dim
         if mode=='simulation':
-            self.agents = agents
+            self.param = param
+            self.num_competitors = len(param)
+            self.CTR_models = []
+            for i in range(self.num_competitors):
+                ctr = copy.deepcopy(CTR_model)
+                ctr.item_features = param[i]
+                self.CTR_models.append(ctr)
         elif mode=='logistic':
             self.model = Logistic(param)
         elif mode=='MLP':
@@ -41,13 +49,27 @@ class Winrate:
     
     def __call__(self, context, bid):
         if self.mode=='simulation':
-            pass
+            if len(bid)==1:
+                prob = 1.0
+                for i in range(self.num_competitors):
+                    mean = np.max(self.CTR_models[i](context) * 0.75)
+                    prob *= norm.cdf(bid.item(), loc=mean, scale=0.2)
+                return prob
+            else:
+                prob_list = []
+                for j in range(len(bid)):
+                    prob = 1.0
+                    for i in range(self.num_competitors):
+                        mean = np.max(self.CTR_models[i](context) * 0.8)
+                        prob *= norm.cdf(bid[j], loc=mean, scale=0.1)
+                    prob_list.append(prob)
+                return np.array(prob_list)
         else:
             if len(bid)==1:
                 return self.model(np.concatenate([context, bid]))
             else:
                 x =np.concatenate([
-                    np.tile(context.reshape(1,-1), (len(bid),len(context))),
+                    np.tile(context.reshape(1,-1), (len(bid),1)),
                     bid.reshape(-1,1)
                 ], axis=1)
                 return self.model(x)
@@ -189,7 +211,7 @@ class NeuralWinRateEstimator(nn.Module):
     def __init__(self, context_dim, skip_connection=True):
         super().__init__()
         self.skip_connection = skip_connection
-        self.H = 16
+        self.H = 32
         if self.skip_connection:
             self.linear1 = nn.Linear(context_dim, self.H-1)
         else:
@@ -232,3 +254,42 @@ class QNet(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
+
+class Actor(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+    
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return torch.sigmoid(self.fc3(x))
+
+class Critic(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+
+        self.fc4 = nn.Linear(input_dim, hidden_dim)
+        self.fc5 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc6 = nn.Linear(hidden_dim, 1)
+    
+    def forward(self, x):
+        q1 = F.relu(self.fc1(x))
+        q1 = F.relu(self.fc2(q1))
+        q1 = self.fc3(q1)
+
+        q2 = F.relu(self.fc4(x))
+        q2 = F.relu(self.fc5(q2))
+        q2 = self.fc6(q2)
+
+        return q1, q2
+    
+    def Q1(self, x):
+        q1 = F.relu(self.fc1(x))
+        q1 = F.relu(self.fc2(q1))
+        return self.fc3(q1)
