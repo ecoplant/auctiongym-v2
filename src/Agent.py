@@ -109,9 +109,15 @@ class DQN(Agent):
         self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
         self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.exploration_length = config['exploration_length']
         self.optimizer = optim.Adam(self.local_network.parameters(), lr = 5e-4)
+        self.update_nums = config['update_nums']
+        self.epsilon_initial = config['epsilon_initial']
+        self.epsilon_decay = config['epsilon_decay']
+        self.epsilon_final = config['epsilon_final']
         self.batch_size = config['batch_size']
+        self.epsilon = self.epsilon_initial
         self.tau = config['tau']
         self.num_grad_steps = config['num_grad_steps']
     
@@ -124,6 +130,10 @@ class DQN(Agent):
         index = np.argmax(self.local_network(x).numpy(force=True))
         item = index % self.num_items
         bid = b_grid[int(index / self.num_items)]
+        if self.rng.uniform(0, 1) < self.epsilon:
+            item = self.rng.choice(self.num_items, 1).item()
+        if self.epsilon > self.epsilon_final:
+            self.epsilon *= self.epsilon_decay
         if self.clock < self.exploration_length:
             bid = self.item_values[item] * self.rng.random()
         return item, bid
