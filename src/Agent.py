@@ -67,6 +67,7 @@ class Bandit(Agent):
     def bid(self, state, value=None, prob_win=None, b_grid=None):
         self.clock += 1
         context = state[:self.context_dim]
+        remaining_budget = state[self.context_dim]
         item, estimated_CTR = self.select_item(context)
         optimistic_CTR = estimated_CTR
         value = self.item_values[item]
@@ -89,7 +90,7 @@ class Bandit(Agent):
                 bid = self.bidder.bid(value, context, optimistic_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
-        return item, bid
+        return item, np.clip(bid, 0, remaining_budget)
 
     def update(self):
         # Update response model with data from winning bids
@@ -124,6 +125,7 @@ class DQN(Agent):
     def bid(self, state):
         self.clock += 1
         n_values_search = int(100*np.max(self.item_values))
+        remaining_budget = state[self.context_dim]
         b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
         x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
                        np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])).to(self.device)
@@ -136,7 +138,7 @@ class DQN(Agent):
             self.epsilon *= self.epsilon_decay
         if self.clock < self.exploration_length:
             bid = self.item_values[item] * self.rng.random()
-        return item, bid
+        return item, np.clip(bid, 0, remaining_budget)
 
     def update(self):
         if len(self.buffer.states)<self.batch_size:
@@ -201,6 +203,7 @@ class QBid(Agent):
     def bid(self, state):
         self.clock += 1
         context = state[:self.context_dim]
+        remaining_budget = state[self.context_dim]
         item, estimated_CTR = self.select_item(context)
         self.estimated_CTRs.append(estimated_CTR)
         value = self.item_values[item]
@@ -216,7 +219,7 @@ class QBid(Agent):
                 index = np.argmax(self.local_network(x).numpy(force=True))
             bid = b_grid[index]
         
-        return item, bid
+        return item, np.clip(bid, 0, remaining_budget)
 
     def update(self):
         states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
@@ -290,6 +293,7 @@ class TD3(Agent):
     def bid(self, state):
         self.clock += 1
         context = state[:self.context_dim]
+        remaining_budget = state[self.context_dim]
         item, estimated_CTR = self.select_item(context)
         value = self.item_values[item]
 
@@ -300,7 +304,7 @@ class TD3(Agent):
             bid = value * self.actor(x).item()
             bid = np.clip(bid+self.rng.normal(0.0,self.noise), 0.0, value)
 
-        return item, bid
+        return item, np.clip(bid, 0, remaining_budget)
 
     def update(self):
         states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
