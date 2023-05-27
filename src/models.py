@@ -293,3 +293,15 @@ class Critic(nn.Module):
         q1 = F.relu(self.fc1(x))
         q1 = F.relu(self.fc2(q1))
         return self.fc3(q1)
+
+class simulator(nn.Module):
+    def __init__(self, state_action_size, fc1_size, fc2_size, context_dim):
+        super().__init__()
+        self.fc1 = nn.Linear(state_action_size, fc1_size)
+        self.fc2 = nn.Linear(fc1_size, fc2_size)
+        self.fc3 = nn.Linear(fc2_size, context_dim + 1) # outputs [context, reward]
+    
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)

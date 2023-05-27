@@ -1,15 +1,22 @@
 {
-  "name": "DQN",
-  "type": "DQN",
+  "name": "DynaDQN",
+  "type": "DynaDQN",
   "fc1_size": 32,
   "fc2_size": 32,
+  "fc1_size_sim": 32,
+  "fc2_size_sim":  32,
   "update_nums": 100,
   "epsilon_initial": 0.999,
   "epsilon_decay": 0.999,
   "epsilon_final": 0.001,
   "batch_size": 64,
+  "batch_size_sim": 2,
   "tau": 0.5,
+  "simulation_length": 50,
   "num_grad_steps": 10,
+  "num_grad_steps_sim": 100,
   "exploration_length": 1000,
-  "output_dir": "results/DQN"
+  "start_simul":  10000,
+
+  "output_dir": "results/DynaDQN"
 }

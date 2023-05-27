@@ -109,7 +109,6 @@ class DQN(Agent):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
         self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
-
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.exploration_length = config['exploration_length']
         self.optimizer = optim.Adam(self.local_network.parameters(), lr = 5e-4)
@@ -166,7 +165,7 @@ class DQN(Agent):
 
 class QBid(Agent):
     ''' CVR estimator + DQN bidder '''
-
+    # Neural allocator is used
     def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
         super().__init__(rng, name, item_features, item_values, context_dim, buffer)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -270,7 +269,7 @@ class TD3(Agent):
         self.num_grad_steps = config['num_grad_steps']
         self.tau = config['tau']
         self.noise = config['noise']
-
+         
         self.exploration_length = config['exploration_length']
 
     def select_item(self, context):
@@ -357,3 +356,267 @@ class TD3(Agent):
 
                 for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
                     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+
+class DynaDQN(Agent):
+    def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
+        super().__init__(rng, name, item_features, item_values, context_dim, buffer)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+        self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+        ###################### The simulator mimics the auction, thus the remaining budget and remaining steps should not affect the reward. Therefore it takes ([context+item_feature], bidding) as input
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.exploration_length = config['exploration_length']
+        self.optimizer = optim.Adam(self.local_network.parameters(), lr = 5e-4)
+        self.update_nums = config['update_nums']
+        self.epsilon_initial = config['epsilon_initial']
+        self.epsilon_decay = config['epsilon_decay']
+        self.epsilon_final = config['epsilon_final']
+        self.batch_size = config['batch_size']
+        self.batch_size_sim = config['batch_size_sim']
+        self.epsilon = self.epsilon_initial
+        self.tau = config['tau']
+        self.num_grad_steps = config['num_grad_steps']
+        self.num_grad_steps_sim = config['num_grad_steps_sim']
+        # Dyna settings
+        self.simulation_length = config['simulation_length']
+        self.start_simul = config['start_simul']
+        self.simulator_network = simulator(context_dim + self.feature_dim + 1, config['fc1_size_sim'], config['fc2_size_sim'], context_dim).to(self.device)
+        self.optimizer_sim = optim.Adam(self.simulator_network.parameters(), lr = 5e-4)
+
+    def bid(self, state):
+        self.clock += 1
+        n_values_search = int(100*np.max(self.item_values))
+        remaining_budget = state[self.context_dim]
+        b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+        x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
+                       np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])).to(self.device)
+        index = np.argmax(self.local_network(x).numpy(force=True))
+        item = index % self.num_items
+        bid = b_grid[int(index / self.num_items)]
+        if self.rng.uniform(0, 1) < self.epsilon:
+            item = self.rng.choice(self.num_items, 1).item()
+        if self.epsilon > self.epsilon_final:
+            self.epsilon *= self.epsilon_decay
+        if self.clock < self.exploration_length:
+            bid = self.item_values[item] * self.rng.random()
+        return item, np.clip(bid, 0, remaining_budget)
+
+    def update(self):
+        if len(self.buffer.states)<self.batch_size:
+            return
+        # Update response model with data from winning bids
+        criterion = nn.MSELoss()
+        self.local_network.train()
+        self.target_network.eval()
+        for i in range(self.num_grad_steps):
+            states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
+            predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+            with torch.no_grad():
+                n_values_search = int(100*np.max(self.item_values))
+                b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
+                x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                            np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
+            loss = criterion(predicted_targets, labels)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+            ####Train simulator with different samples. Simulator receives (context,a) as input and outputs next contrext and r       s a r s'
+        for i in range(self.num_grad_steps_sim):
+            states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size_sim)
+            context = states[:, :self.context_dim]
+            predicted_targets = self.simulator_network(torch.Tensor(np.hstack([context, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+            with torch.no_grad():
+                tmp = np.concatenate((next_states[:, :self.context_dim], rewards.reshape(-1,1)), axis=1)
+                labels = torch.Tensor(tmp).to(self.device)
+            loss_sim = criterion(predicted_targets, labels)
+            self.optimizer_sim.zero_grad()
+            loss_sim.backward()
+            self.optimizer_sim.step()
+
+            
+        if len(self.buffer.states) > self.start_simul:
+            ###Train local network with simulated experiences
+            for i in range(self.simulation_length):
+
+            # auction context + budget+step, context 
+
+                states, item_inds, biddings, _, _, _ = self.buffer.sample(self.batch_size)
+                context = states[:, :self.context_dim]
+                predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+                with torch.no_grad():
+                    sim_result = self.simulator_network(torch.Tensor(np.hstack([context, self.items[item_inds], biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
+                    next_contexts = sim_result[:, :self.context_dim]
+                    next_remaining_budget = states[:, self.context_dim] - biddings
+                    next_remaining_steps = states[:, self.context_dim+1] - 1
+                    next_states = np.concatenate((next_contexts, next_remaining_budget.reshape(-1,1), next_remaining_steps.reshape(-1,1)), axis=1)
+                    rewards = sim_result[:, self.context_dim]
+                    n_values_search = int(100*np.max(self.item_values))
+                    b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                    tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)]) 
+                    x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                                np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                    labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                loss = criterion(predicted_targets, labels)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()  
+
+        for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
+            target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+
+
+
+class DynaDQN_winCTR(Agent):
+    def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
+        super().__init__(rng, name, item_features, item_values, context_dim, buffer)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+        self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+        ###################### The simulator mimics the auction, thus the remaining budget and remaining steps should not affect the reward. Therefore it takes ([context+item_feature], bidding) as input
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.exploration_length = config['exploration_length']
+        self.optimizer = optim.Adam(self.local_network.parameters(), lr = 5e-4)
+        self.update_nums = config['update_nums']
+        self.epsilon_initial = config['epsilon_initial']
+        self.epsilon_decay = config['epsilon_decay']
+        self.epsilon_final = config['epsilon_final']
+        self.batch_size = config['batch_size']
+        self.epsilon = self.epsilon_initial
+        self.tau = config['tau']
+        self.num_grad_steps = config['num_grad_steps']
+        self.num_grad_steps_sim = config['num_grad_steps_sim']
+        # Dyna settings
+        self.simulation_length = config['simulation_length']
+        self.start_simul = config['start_simul']
+        self.batch_size_sim = config['batch_size_sim']
+        self.model_train_start = config['model_train_start']
+        self.winrate_model = NeuralWinRateEstimator(context_dim) # parameters are defined in models.py
+        self.optimizer_winrate = optim.Adam(self.CTR_model.parameters(), lr = 1e-3)
+        self.latent_dim = config['CTR']['latent_dim']
+        self.lr_CTR = config['CTR']['lr']
+        self.batch_size_CTR = config['CTR']['batch_size']
+        self.num_epochs_CTR = config['CTR']['num_epochs']
+        self.CTR_model = NeuralRegression(context_dim+self.feature_dim, self.latent_dim)
+        self.optimizer_CTR = optim.Adam(self.CTR_model.paramters(), lr = self.lr_CTR)
+
+    def bid(self, state):
+        self.clock += 1
+        n_values_search = int(100*np.max(self.item_values))
+        remaining_budget = state[self.context_dim]
+        b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+        x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
+                       np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])).to(self.device)
+        index = np.argmax(self.local_network(x).numpy(force=True))
+        item = index % self.num_items
+        bid = b_grid[int(index / self.num_items)]
+        if self.rng.uniform(0, 1) < self.epsilon:
+            item = self.rng.choice(self.num_items, 1).item()
+        if self.epsilon > self.epsilon_final:
+            self.epsilon *= self.epsilon_decay
+        if self.clock < self.exploration_length:
+            bid = self.item_values[item] * self.rng.random()
+        return item, np.clip(bid, 0, remaining_budget)
+
+    def update(self):
+        if len(self.buffer.states)<self.batch_size:
+            return
+        # Update response model with data from winning bids
+        criterion = nn.MSELoss()
+        self.local_network.train()
+        self.target_network.eval()
+        for i in range(self.num_grad_steps):
+            states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
+            predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+            with torch.no_grad():
+                n_values_search = int(100*np.max(self.item_values))
+                b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
+                x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                            np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
+            loss = criterion(predicted_targets, labels)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        
+        if len(self.buffer.states) > self.model_train_start:
+            N = len(self.buffer.states)
+            batch_size_CTR = min(N, self.batch_size_CTR)
+            self.CTR_model.train() # model for CTR simulation
+            self.winrate_model.train() # model for winrate simulation
+            criterion_bi = nn.BCELoss() # loss used to train winrate and CTR
+
+            states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
+
+            context = states[:, :self.context_dim]
+
+            for i in range(self.num_epochs_CTR):
+                ind = self.rng.choice(N, size=batch_size_CTR, replace=False)
+                X = np.concatenate([contexts[ind], self.item_features[items[ind]]], axis=1)
+                with torch.no_grad():
+                    y = torch.Tensor(outcomes[ind]).to(self.device)
+                X= torch.Tensor(X).to(self.device)
+                loss_CTR = criterion_bi(self.CTR_model(X).squeeze(), y)
+                self.optimizer_CTR.zero_grad()
+                loss_CTR.backward()
+                self.optimizer_CTR.step()
+
+                ### 원래는 winrate model 도 num_epochs_winrate, batch_size_winrate 등이 따로 있어서 튜닝해야 하는데, 일단은 이렇게 해보자.
+                X = np.concatenate([contexts[ind], biddings[ind]], axis=1)
+                with torch.no_grad():
+                    y = torch.Tensor(wins[ind]).to(self.device)
+                loss_winrate = criterion_bi(self.winrate_model(X).squeeze(), y)
+                self.optimizer_winrate.zero_grad()
+                loss_winrate.backward()
+                self.optimizer_winrate.step()
+
+            
+        if len(self.buffer.states) > self.start_simul:
+            ###Train local network with simulated experiences
+            for i in range(self.simulation_length):
+                states, item_inds, _, _, next_states, _ = self.buffer.sample(self.batch_size)
+                context = states[:, :self.context_dim]
+                predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+                with torch.no_grad():
+                    winrate = self.winrate_model(torch.Tensor(np.hstack([context, biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
+                    CTR = self.CTR_model (torch.Tensor(np.hstack([context, self.items[item_inds], biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
+                    # Should I generate the next state? or just use from the buffer?
+                    wins = self.rng.binomial(1, winrate)
+                    outcomes = self.rng.binomial(1, CTR)
+                    rewards = wins*outcomes*self.item_values[item_inds]
+                    n_values_search = int(100*np.max(self.item_values))
+                    b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                    tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)]) 
+                    x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                                np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                    labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                loss = criterion(predicted_targets, labels)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()  
+
+        for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
+            target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+
+            ################## SEED 마다 어떻게 달라지는지 보자???
+            ################## double DQN? clipped DQN? 
+            ################## 그다음엔 exploration 어떻게 할지
+            ################## allocation 과 bidding 모두 exploration 이 필요함. bidding 이 너무 적으면 allocation 에도 문제가 생김?
+            ## uncerainty bound 가 필요한 ucb 는 dqn 에서 안됨. arm 을 선택한 횟수를 정의하기 애매함. linear regression 은 weight 의 uncertainty 를 구할 수 있는데 NN 은 그게 어려움.
+            ## linaer Q_learning. linear regression 으론 covariance matrix 도 학습할 수 있음. Allocation 만 linear 하게?
+            ## winrate 와 CTR 을 linear 하게? winrate 는 모든 state 에 대해서, bidding 이 0이면 0, bidding 이 매우 크면 1 이어야 한다. 이러한 logistic model 을 만들기가 어려움.
+            ## q value function 은 uncertainty 자체가 파라미터.
+
+            ## exploration 은 linear 에서만 해보자. 
+
+            ## context 는 replay 에서 가져오고, 옥션에서 이길지 질지 cvr 이랑 winrate 으로 r 을 뽑아내라. -> 물어봐라. Agent 는 원래 winrate model 나 CTR 에 대한 정보가 없어야 하는데, 그 모델을 써서 시뮬레이터를 만드는게 유의미한가? 아예 dynamics 에 대해 아무 정보가 없는 상태에서 experience 들을 바탕으로 모델을 배워야 하는거 아닌가?
+            ## tau 를 좀 크게 해라. 0.001 같은걸로 하면 에피소드 끝날때마다 함.
+
+            ## budget, horizon 은 그대로 하고 파라미터 바꿔가면서 잘 되는거 찾자. 
+
+
+
+            # Neural contextual bandit with UCB based exploration 으로 allocation 에서의 explore 를 구현할 수 있지 않을까? 

@@ -16,5 +16,5 @@
         }
     },
     "exploration_length": 100,
-    "output_dir": "results/"
+    "output_dir": "results/LogistBandit"
 }

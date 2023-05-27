@@ -104,7 +104,10 @@ def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer
         return QBid(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='TD3':
         return TD3(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-
+    elif agent_config['type']=='DynaDQN':
+        return DynaDQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    elif agent_config['type']=='DynaDQN_winCTR':
+        return DynaDQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 if __name__ == '__main__':
     # Parse commandline arguments
