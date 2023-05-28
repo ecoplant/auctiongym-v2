@@ -1,22 +1,19 @@
 {
   "name": "DynaDQN_winCTR",
   "type": "DynaDQN_winCTR",
-  "fc1_size": 32,
-  "fc2_size": 32,
+  "fc1_size": 12,
+  "fc2_size": 24,
   "update_nums": 100,
   "epsilon_initial": 0.999,
   "epsilon_decay": 0.999,
   "epsilon_final": 0.001,
   "batch_size": 64,
-  "tau": 0.5,
+  "tau": 0.01,
   "num_grad_steps": 10,
   "exploration_length": 1000,
   "start_simul": 10000,
-  "simulation_length": 50,
-  "batch_size_sim": 2,
+  "simulation_length": 20,
   "num_grad_steps_sim": 100,
-  "fc1_size_sim": 32,
-  "fc2_size_sim": 32,
   "winrate": {
     
   },
@@ -24,7 +21,7 @@
     "model_train_start": 10,
     "lr": 1e-3,
     "batch_size": 256,
-    "latent_dim": 32,
+    "latent_dim": 24,
     "num_epochs": 10
   },
 

@@ -8,7 +8,7 @@
   "epsilon_decay": 0.999,
   "epsilon_final": 0.001,
   "batch_size": 64,
-  "tau": 0.5,
+  "tau": 0.01,
   "num_grad_steps": 10,
   "exploration_length": 1000,
   "output_dir": "results/DQN"

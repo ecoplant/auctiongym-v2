@@ -185,7 +185,7 @@ class LogisticRegression(nn.Module):
     
     def unflatten(self, tensor, x, y):
         return torch.reshape(tensor, (x, y))
-    
+
 class NeuralRegression(nn.Module):
     def __init__(self, input_dim, latent_dim):
         super().__init__()
@@ -203,6 +203,7 @@ class NeuralRegression(nn.Module):
 
     def loss(self, predictions, labels):
         return self.BCE(predictions, labels)
+        
 
 
 # ==========winrate estimators==========
@@ -211,7 +212,7 @@ class NeuralWinRateEstimator(nn.Module):
     def __init__(self, context_dim, skip_connection=True):
         super().__init__()
         self.skip_connection = skip_connection
-        self.H = 32
+        self.H = 24
         if self.skip_connection:
             self.linear1 = nn.Linear(context_dim, self.H-1)
         else:

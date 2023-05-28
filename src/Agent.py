@@ -491,16 +491,15 @@ class DynaDQN_winCTR(Agent):
         # Dyna settings
         self.simulation_length = config['simulation_length']
         self.start_simul = config['start_simul']
-        self.batch_size_sim = config['batch_size_sim']
-        self.model_train_start = config['model_train_start']
-        self.winrate_model = NeuralWinRateEstimator(context_dim) # parameters are defined in models.py
-        self.optimizer_winrate = optim.Adam(self.CTR_model.parameters(), lr = 1e-3)
-        self.latent_dim = config['CTR']['latent_dim']
+        self.model_train_start = config['CTR']['model_train_start']
+        self.winrate_model = NeuralWinRateEstimator(context_dim).to(self.device) # parameters are defined in models.py
+        self.latent_dim = config['CTR']['latent_dim']        
+        self.CTR_model = NeuralRegression(context_dim+self.feature_dim, self.latent_dim).to(self.device)
         self.lr_CTR = config['CTR']['lr']
         self.batch_size_CTR = config['CTR']['batch_size']
         self.num_epochs_CTR = config['CTR']['num_epochs']
-        self.CTR_model = NeuralRegression(context_dim+self.feature_dim, self.latent_dim)
-        self.optimizer_CTR = optim.Adam(self.CTR_model.paramters(), lr = self.lr_CTR)
+        self.optimizer_winrate = optim.Adam(self.winrate_model.parameters(), lr = 1e-3)
+        self.optimizer_CTR = optim.Adam(self.CTR_model.parameters(), lr = self.lr_CTR)
 
     def bid(self, state):
         self.clock += 1
@@ -548,14 +547,11 @@ class DynaDQN_winCTR(Agent):
             self.CTR_model.train() # model for CTR simulation
             self.winrate_model.train() # model for winrate simulation
             criterion_bi = nn.BCELoss() # loss used to train winrate and CTR
-
             states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
-
-            context = states[:, :self.context_dim]
-
+            contexts = states[:, :self.context_dim]
             for i in range(self.num_epochs_CTR):
                 ind = self.rng.choice(N, size=batch_size_CTR, replace=False)
-                X = np.concatenate([contexts[ind], self.item_features[items[ind]]], axis=1)
+                X = np.concatenate([contexts[ind], self.items[item_inds[ind]]], axis=1)
                 with torch.no_grad():
                     y = torch.Tensor(outcomes[ind]).to(self.device)
                 X= torch.Tensor(X).to(self.device)
@@ -565,10 +561,10 @@ class DynaDQN_winCTR(Agent):
                 self.optimizer_CTR.step()
 
                 ### 원래는 winrate model 도 num_epochs_winrate, batch_size_winrate 등이 따로 있어서 튜닝해야 하는데, 일단은 이렇게 해보자.
-                X = np.concatenate([contexts[ind], biddings[ind]], axis=1)
+                X = np.concatenate([contexts[ind], biddings[ind].reshape(-1,1)], axis=1)
                 with torch.no_grad():
                     y = torch.Tensor(wins[ind]).to(self.device)
-                loss_winrate = criterion_bi(self.winrate_model(X).squeeze(), y)
+                loss_winrate = criterion_bi(self.winrate_model(torch.Tensor(X)).squeeze(), y)
                 self.optimizer_winrate.zero_grad()
                 loss_winrate.backward()
                 self.optimizer_winrate.step()
@@ -577,12 +573,31 @@ class DynaDQN_winCTR(Agent):
         if len(self.buffer.states) > self.start_simul:
             ###Train local network with simulated experiences
             for i in range(self.simulation_length):
-                states, item_inds, _, _, next_states, _ = self.buffer.sample(self.batch_size)
-                context = states[:, :self.context_dim]
+                states, item_inds, biddings, _, next_states, _ = self.buffer.sample(self.batch_size)
+                for j in range(self.batch_size):
+                    state = states[j]
+                    n_values_search = int(100*np.max(self.item_values))
+                    remaining_budget = state[self.context_dim]
+                    b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                    x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
+                                   np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])).to(self.device)
+                    index = np.argmax(self.local_network(x).numpy(force=True))
+                    item = index % self.num_items
+                    bid = b_grid[int(index / self.num_items)]
+                    if self.rng.uniform(0, 1) < self.epsilon:
+                        item = self.rng.choice(self.num_items, 1).item()
+                    item_inds[j] = item
+                    biddings[j] = bid
+                # action taken according to current q-network with states sampled from replay buffer. Should I use such actions or sample the actions too?
+                # action taken according to current q-network with states smapled form replay buffer works better.
+
                 predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+
+                # Simulate experiences from (s,a)
                 with torch.no_grad():
-                    winrate = self.winrate_model(torch.Tensor(np.hstack([context, biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
-                    CTR = self.CTR_model (torch.Tensor(np.hstack([context, self.items[item_inds], biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
+                    contexts = states[:, :self.context_dim]
+                    winrate = self.winrate_model(torch.Tensor(np.hstack([contexts, biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
+                    CTR = self.CTR_model (torch.Tensor(np.hstack([contexts, self.items[item_inds]])).to(self.device)).squeeze() # outputs next context and reward
                     # Should I generate the next state? or just use from the buffer?
                     wins = self.rng.binomial(1, winrate)
                     outcomes = self.rng.binomial(1, CTR)

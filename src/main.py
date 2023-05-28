@@ -107,7 +107,9 @@ def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer
     elif agent_config['type']=='DynaDQN':
         return DynaDQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='DynaDQN_winCTR':
-        return DynaDQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+        return DynaDQN_winCTR(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    else:
+        print("something wrong")
 
 if __name__ == '__main__':
     # Parse commandline arguments
