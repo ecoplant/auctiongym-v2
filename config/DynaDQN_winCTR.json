@@ -10,7 +10,7 @@
   "batch_size": 64,
   "tau": 0.1,
   "num_grad_steps": 10,
-  "exploration_length": 3000,
+  "exploration_length": 5000,
   "start_simul": 1000,
   "simulation_length": 20,
   "num_grad_steps_sim": 100,
