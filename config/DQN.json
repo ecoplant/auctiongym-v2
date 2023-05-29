@@ -10,6 +10,6 @@
   "batch_size": 64,
   "tau": 0.1,
   "num_grad_steps": 10,
-  "exploration_length": 3000,
+  "exploration_length": 5000,
   "output_dir": "results/DQN"
 }
