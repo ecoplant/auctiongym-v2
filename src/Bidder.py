@@ -107,3 +107,9 @@ class DefaultBidder(Bidder):
         self.winrate_model.eval()
 
 
+class MaxBidder(Bidder):
+    def __init__(self, rng, context_dim):
+        super().__init__(rng)
+
+    def bid(self, value, context, estimated_CTR):
+        return value

@@ -1,0 +1,16 @@
+{
+    "name": "Oracle-QBid",
+    "type": "QBid",
+    "allocator":{
+        "type": "OracleAllocator",
+        "kwargs":{
+        }
+    },
+    "hidden_dim": 32,
+    "lr": 1e-3,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "tau": 0.01,
+    "exploration_length": 10000,
+    "output_dir": "results/Oracle_QBid"
+}

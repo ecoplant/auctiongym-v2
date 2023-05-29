@@ -1,0 +1,14 @@
+{
+    "name": "DQN",
+    "type": "DQN",
+    "hidden_dim": 16,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "lr": 1e-3,
+    "tau": 0.01,
+    "exploration_strategy": "Eps-Greedy",
+    "epsilon_init": 1.0,
+    "epsilon_min": 0.01,
+    "eps_decay": 0.999,
+    "output_dir": "results/DQN-EpsGreedy"
+}

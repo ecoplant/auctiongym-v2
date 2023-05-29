@@ -50,21 +50,25 @@ class Bandit(Agent):
     def select_item(self, context):
         # Estimate CTR for all items
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
-            estim_CTRs = self.allocator.estimate_CTR(context, UCB=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context, UCB=True)
+            estim_CTRs = estim_CTRs + self.allocator.c * uncertainty
         elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
-            estim_CTRs = self.allocator.estimate_CTR(context, TS=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context, TS=True)
         else:
             estim_CTRs = self.allocator.estimate_CTR(context)
-        # Compute value if clicked
+            uncertainty = np.zeros_like(estim_CTRs)
+        
+        # Select the item with the highest expected reward
         estim_values = estim_CTRs * self.item_values
         best_item = np.argmax(estim_values)
+
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='Epsilon-greedy':
-            if self.rng.uniform(0,1)<self.allocator.eps(self.exploration_length, self.clock):
+            if self.rng.uniform(0,1)<self.allocator.eps:
                 best_item = self.rng.choice(self.num_items, 1).item()
 
-        return best_item, estim_CTRs[best_item]
+        return best_item, estim_CTRs[best_item], uncertainty[best_item]
 
-    def bid(self, state, value=None, prob_win=None, b_grid=None):
+    def bid(self, state, t, value=None, prob_win=None, b_grid=None):
         self.clock += 1
         context = state[:self.context_dim]
         item, estimated_CTR = self.select_item(context)
@@ -89,16 +93,19 @@ class Bandit(Agent):
                 bid = self.bidder.bid(value, context, optimistic_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
-        return item, bid
+        return item, np.clip(bid, 0.0, state[-2])
 
-    def update(self):
+    def update(self, t):
         # Update response model with data from winning bids
         states, items, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
         contexts = states[:, :self.context_dim]
-        self.allocator.update(contexts[wins], items[wins], outcomes[wins])
+        self.allocator.update(contexts[wins], items[wins], outcomes[wins], t)
 
         # Update bidding model with all data
         self.bidder.update(contexts, biddings, wins)
+    
+    def get_uncertainty(self, len):
+        return np.mean(self.allocator.uncertainty[-len:])
 
 class DQN(Agent):
     ''' A MDP style agent '''
@@ -106,61 +113,104 @@ class DQN(Agent):
     def __init__(self, rng, name, item_features, item_values, context_dim, buffer, config):
         super().__init__(rng, name, item_features, item_values, context_dim, buffer)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
-        self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.exploration_length = config['exploration_length']
-        self.optimizer = optim.Adam(self.local_network.parameters(), lr = 5e-4)
-        self.update_nums = config['update_nums']
-        self.epsilon_initial = config['epsilon_initial']
-        self.epsilon_decay = config['epsilon_decay']
-        self.epsilon_final = config['epsilon_final']
+        self.exploration_strategy = config['exploration_strategy']
+        if self.exploration_strategy=='Eps-Greedy':
+            self.local_network = Critic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.target_network = copy.deepcopy(self.local_network)
+            self.eps_init = self.eps = config['eps_init']
+            self.eps_min = config['eps_min']
+            self.eps_decay = config['eps_decay']
+        elif self.exploration_strategy=='Noise Injection':
+            self.local_network = Critic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.target_network = copy.deepcopy(self.local_network)
+            self.noise_init = self.noise = config['noise_init']
+            self.noise_min = config['noise_min']
+            self.noise_decay = config['noise_decay']
+        elif self.exploration_strategy=='Noisy Network':
+            self.local_network = NoisyCritic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim'], config['var_scale']).to(self.device)
+            self.target_network = copy.deepcopy(self.local_network)
+
+        self.optimizer = optim.Adam(self.local_network.parameters(), lr = config['lr'])
         self.batch_size = config['batch_size']
-        self.epsilon = self.epsilon_initial
         self.tau = config['tau']
         self.num_grad_steps = config['num_grad_steps']
     
-    def bid(self, state):
+    def bid(self, state, t):
         self.clock += 1
         n_values_search = int(100*np.max(self.item_values))
         b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
         x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
                        np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])).to(self.device)
-        index = np.argmax(self.local_network(x).numpy(force=True))
-        item = index % self.num_items
-        bid = b_grid[int(index / self.num_items)]
-        if self.rng.uniform(0, 1) < self.epsilon:
-            item = self.rng.choice(self.num_items, 1).item()
-        if self.epsilon > self.epsilon_final:
-            self.epsilon *= self.epsilon_decay
-        if self.clock < self.exploration_length:
-            bid = self.item_values[item] * self.rng.random()
-        return item, bid
+        with torch.no_grad():
+            if self.exploration_strategy=='Eps-Greedy':
+                if self.rng.uniform(0, 1) < self.eps:
+                    item = self.rng.choice(self.num_items, 1).item()
+                    bid = self.item_values[item] * self.rng.random()
+                else:
+                    index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                    item = index % self.num_items
+                    bid = b_grid[int(index / self.num_items)]
+                self.eps = np.minimum(self.eps*self.eps_decay, self.eps_min)
 
-    def update(self):
+            elif self.exploration_strategy=='Noise Injection':
+                raise NotImplementedError
+                param_dict = {}
+                for key, param in self.local_network.parameters().items():
+                    param_dict[key] = param.copy()
+                    param.data.copy_(param + torch.randn_like(param)*self.noise)
+                index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                item = index % self.num_items
+                bid = b_grid[int(index / self.num_items)]
+                for key, param in self.local_network.parameters().items():
+                    param.data.copy_(param_dict[key])
+                self.noise = np.minimum(self.noise*self.noise_decay, self.noise_min)
+
+            elif self.exploration_strategy=='Noisy Network':
+                index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                item = index % self.num_items
+                bid = b_grid[int(index / self.num_items)]
+        
+        return item, np.clip(bid, 0.0, state[-2])
+
+    def update(self, t):
         if len(self.buffer.states)<self.batch_size:
             return
         # Update response model with data from winning bids
         criterion = nn.MSELoss()
         self.local_network.train()
         self.target_network.eval()
+
         for i in range(self.num_grad_steps):
             states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
-            predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+            q1, q2 = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device))
             with torch.no_grad():
                 n_values_search = int(100*np.max(self.item_values))
                 b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
                 tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
                 x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
-                                            np.tile(tmp, (self.batch_size, 1))])).to(self.device)
-                labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
-            loss = criterion(predicted_targets, labels)
+                                        np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                if self.exploration_strategy=='Noisy Network':
+                    next_q1, next_q2  = self.target_network(x, sample=False)
+                else:
+                    next_q1, next_q2  = self.target_network(x)
+                target_q1 = torch.max(next_q1.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q2 = torch.max(next_q2.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * torch.min(target_q1, target_q2)
+            loss = criterion(q1.squeeze(), target_q) + criterion(q2.squeeze(), target_q)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-        for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
-            target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+
+        if t%2 == 0:
+            for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
+                target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+    
+    def get_uncertainty(self, len):
+        if self.exploration_strategy=='Noisy Network':
+            return self.local_network.get_uncertainty()
+        else:
+            return 0.0
 
 class QBid(Agent):
     ''' CVR estimator + DQN bidder '''
@@ -170,58 +220,90 @@ class QBid(Agent):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
 
-        self.local_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
-        self.target_network = QNet(context_dim + 2 + self.feature_dim + 1, config['fc1_size'], config['fc2_size']).to(self.device)
+        self.exploration_strategy = config['exploration_strategy']
+        if self.exploration_strategy=='Eps-Greedy':
+            self.local_network = Critic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.target_network = copy.deepcopy(self.local_network)
+            self.eps_init = config['eps_init']
+            self.eps_min = config['eps_min']
+            self.eps_decay = config['eps_decay']
+        elif self.exploration_strategy=='Noise Injection':
+            self.local_network = Critic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.target_network = copy.deepcopy(self.local_network)
+            self.noise_init = config['noise_init']
+            self.noise_min = config['noise_min']
+            self.noise_decay = config['noise_decay']
+        elif self.exploration_strategy=='Noisy Network':
+            self.local_network = NoisyCritic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.target_network = copy.deepcopy(self.local_network)
 
-        self.exploration_length = config['exploration_length']
         self.optimizer = optim.Adam(self.local_network.parameters(), lr = config['lr'])
         self.batch_size = config['batch_size']
         self.num_grad_steps = config['num_grad_steps']
         self.tau = config['tau']
-
-        self.estimated_CTRs = []
     
     def select_item(self, context):
         # Estimate CTR for all items
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
-            estim_CTRs = self.allocator.estimate_CTR(context, UCB=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context, UCB=True)
+            estim_CTRs = estim_CTRs + self.allocator.c * uncertainty
         elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
-            estim_CTRs = self.allocator.estimate_CTR(context, TS=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context, TS=True)
         else:
             estim_CTRs = self.allocator.estimate_CTR(context)
-        # Compute value if clicked
+            uncertainty = np.zeros_like(estim_CTRs)
+        
+        # Select the item with the highest expected reward
         estim_values = estim_CTRs * self.item_values
         best_item = np.argmax(estim_values)
+
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='Epsilon-greedy':
-            if self.rng.uniform(0,1)<self.allocator.eps(self.exploration_length, self.clock):
+            if self.rng.uniform(0,1)<self.allocator.eps:
                 best_item = self.rng.choice(self.num_items, 1).item()
 
-        return best_item, estim_CTRs[best_item]
+        return best_item, estim_CTRs[best_item], uncertainty[best_item]
     
-    def bid(self, state):
+    def bid(self, state, t):
         self.clock += 1
         context = state[:self.context_dim]
-        item, estimated_CTR = self.select_item(context)
-        self.estimated_CTRs.append(estimated_CTR)
+        item, estimated_CTR, uncertainty = self.select_item(context)
         value = self.item_values[item]
 
-        if self.clock < self.exploration_length:
-            bid = value
-        else:
-            n_values_search = int(100*value)
-            b_grid = np.linspace(0, 1.5*value, n_values_search)
-            with torch.no_grad():
-                x = torch.Tensor(np.hstack([np.tile(state, (n_values_search, 1)), np.tile(self.items[item], (n_values_search, 1)), \
-                            b_grid.reshape(-1, 1)])).to(self.device)
-                index = np.argmax(self.local_network(x).numpy(force=True))
-            bid = b_grid[index]
-        
-        return item, bid
+        n_values_search = int(100*value)
+        b_grid = np.linspace(0, 1.5*value, n_values_search)
+        x = torch.Tensor(np.hstack([np.tile(state, (n_values_search, 1)), np.tile(self.items[item], (n_values_search, 1)), \
+                    b_grid.reshape(-1, 1)])).to(self.device)
 
-    def update(self):
+        with torch.no_grad():
+            if self.exploration_strategy=='Eps-Greedy':
+                if self.rng.uniform(0, 1) < self.eps:
+                    bid = self.item_values[item] * self.rng.random()
+                else:
+                    index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                    bid = b_grid[index]
+                self.eps = np.minimum(self.eps*self.eps_decay, self.eps_min)
+
+            elif self.exploration_strategy=='Noise Injection':
+                param_dict = {}
+                for key, param in self.local_network.parameters().items():
+                    param_dict[key] = param.copy()
+                    param.data.copy_(param + torch.randn_like(param)*self.noise)
+                index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                bid = b_grid[index]
+                for key, param in self.local_network.parameters().items():
+                    param.data.copy_(param_dict[key])
+                self.noise = np.minimum(self.noise*self.noise_decay, self.noise_min)
+
+            elif self.exploration_strategy=='Noisy Network':
+                index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                bid = b_grid[index]
+        
+        return item, np.clip(bid, 0.0, state[-2])
+
+    def update(self, t):
         states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
         contexts = states[:, :self.context_dim]
-        self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins])
+        self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins], t)
 
         if len(self.buffer.states)<self.batch_size:
             return
@@ -232,21 +314,34 @@ class QBid(Agent):
 
         for i in range(self.num_grad_steps):
             states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
-            predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
+            q1, q2 = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device))
             with torch.no_grad():
                 n_values_search = int(100*np.max(self.item_values))
                 b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
                 tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
                 x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
                                         np.tile(tmp, (self.batch_size, 1))])).to(self.device)
-                labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
-            loss = criterion(predicted_targets, labels)
+                if self.exploration_strategy=='Noisy Network':
+                    next_q1, next_q2  = self.target_network(x, sample=False)
+                else:
+                    next_q1, next_q2  = self.target_network(x)
+                target_q1 = torch.max(next_q1.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q2 = torch.max(next_q2.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * torch.min(target_q1, target_q2)
+            loss = criterion(q1.squeeze(), target_q) + criterion(q2.squeeze(), target_q)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
         
-        for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
-            target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+        if t%2 == 0:
+            for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
+                target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
+    
+    def get_uncertainty(self, len):
+        if isinstance(self.allocator, OracleAllocator):
+            return 0.0
+        else:
+            return np.mean(self.allocator.uncertainty[-len:])
 
 
 class TD3(Agent):
@@ -269,28 +364,33 @@ class TD3(Agent):
         self.noise = config['noise']
 
         self.exploration_length = config['exploration_length']
+        self.Gram = np.eye(self.context_dim)
 
     def select_item(self, context):
         # Estimate CTR for all items
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
-            estim_CTRs = self.allocator.estimate_CTR(context, UCB=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context)
+            estim_CTRs = estim_CTRs + self.allocator.c * uncertainty
         elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
-            estim_CTRs = self.allocator.estimate_CTR(context, TS=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context)
         else:
             estim_CTRs = self.allocator.estimate_CTR(context)
-        # Compute value if clicked
+            uncertainty = np.zeros_like(estim_CTRs)
+        
+        # Select the item with the highest expected reward
         estim_values = estim_CTRs * self.item_values
         best_item = np.argmax(estim_values)
+
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='Epsilon-greedy':
-            if self.rng.uniform(0,1)<self.allocator.eps(self.exploration_length, self.clock):
+            if self.rng.uniform(0,1)<self.allocator.eps:
                 best_item = self.rng.choice(self.num_items, 1).item()
 
-        return best_item, estim_CTRs[best_item]
+        return best_item, estim_CTRs[best_item], uncertainty[best_item]
     
-    def bid(self, state):
+    def bid(self, state, t):
         self.clock += 1
         context = state[:self.context_dim]
-        item, estimated_CTR = self.select_item(context)
+        item, estimated_CTR, uncertainty = self.select_item(context)
         value = self.item_values[item]
 
         if self.clock < self.exploration_length:
@@ -298,14 +398,16 @@ class TD3(Agent):
         else:
             x = torch.Tensor(np.concatenate([state, self.items[item], np.array([estimated_CTR])])).to(self.device)
             bid = value * self.actor(x).item()
+            count = context @ self.Gram @ context / (np.sum(context**2) + 1e-2)
+
             bid = np.clip(bid+self.rng.normal(0.0,self.noise), 0.0, value)
 
-        return item, bid
+        return item,np.clip(bid, 0.0, state[-2])
 
-    def update(self):
+    def update(self, t):
         states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
         contexts = states[:, :self.context_dim]
-        self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins])
+        self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins], t)
 
         if len(self.buffer.states)<self.batch_size:
             return
@@ -339,17 +441,23 @@ class TD3(Agent):
             loss.backward()
             self.critic_optim.step()
         
-            if i % 2 == 0:
-                x = torch.Tensor(np.concatenate([states, self.items[item_inds], estimated_CTRs], axis=1)).to(self.device)
-                biddings = self.actor(x)
-                x = torch.concat([x, biddings], dim=1)
-                loss = -self.critic.Q1(x).mean()
-                self.actor_optim.zero_grad()
-                loss.backward()
-                self.actor_optim.step()
+        if t % 2 == 0:
+            x = torch.Tensor(np.concatenate([states, self.items[item_inds], estimated_CTRs], axis=1)).to(self.device)
+            biddings = self.actor(x)
+            x = torch.concat([x, biddings], dim=1)
+            loss = -self.critic.Q1(x).mean()
+            self.actor_optim.zero_grad()
+            loss.backward()
+            self.actor_optim.step()
 
-                for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
-                    target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
-                for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
-                    target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+            for param, target_param in zip(self.actor.parameters(), self.actor_target.parameters()):
+                target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
+        
+    def get_uncertainty(self, len):
+        if isinstance(self.allocator, OracleAllocator):
+            return 0.0
+        else:
+            return np.mean(self.allocator.uncertainty[-len:])

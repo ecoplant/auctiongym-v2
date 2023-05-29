@@ -83,15 +83,6 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
                 feature = rng.normal(0.0, 1.0, size=feature_dim)
                 temp.append(feature)
             winrate_param.append(np.stack(temp))
-    elif winrate_mode=='logistic':
-        winrate_param = np.concatenate([rng.normal(0.0, 1.0, size=(context_dim,)), np.array([1.0])])
-    elif winrate_mode=='MLP':
-        d = context_dim + 1
-        w1 = rng.normal(0.0, 1.0, size=(d, d))
-        b1 = rng.normal(0.0, 1.0, size=(d, 1))
-        w2 = rng.normal(0.0, 1.0, size=(d, 1))
-        b2 = rng.normal(0.0, 1.0, size=(1, 1))
-        winrate_param = (w1, b1, w2, b2)
 
     return CTR_param, winrate_param
 
@@ -145,7 +136,7 @@ if __name__ == '__main__':
 
     # Parse configuration file
     output_dir = agent_config['output_dir']
-    output_dir = output_dir + time.strftime('%y%m%d-%H%M%S') + '/'
+    output_dir = output_dir + '/' + time.strftime('%y%m%d-%H%M%S') + '/'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
@@ -159,6 +150,8 @@ if __name__ == '__main__':
     # optimal_bandit_win_rate = np.zeros((num_runs, num_episodes))
     optimal_selection = np.zeros((num_runs, num_episodes))
     episode_length = np.zeros((num_runs, num_episodes))
+    uncertainty = np.zeros((num_runs, num_episodes))
+    budget_left = np.zeros((num_runs, num_episodes))
 
     # estimated_CTR = np.zeros((num_runs, num_episodes))
 
@@ -179,25 +172,6 @@ if __name__ == '__main__':
             winrate_model = Winrate(winrate_mode, context_dim, winrate_param)
         else:
             winrate_model = Winrate(winrate_mode, context_dim, winrate_param, CTR_model)
-        
-        # winrates = []
-        # for _ in range(10):
-        #     context = np.random.normal(0.0, 1.0, size=context_dim)
-        #     b_grid = np.arange(0.0, 1.1, 0.1)
-        #     temp = []
-        #     for i in range(10):
-        #         temp.append(winrate_model(context, np.array([b_grid[i]])).item())
-        #     winrates.append(np.array(temp))
-        # winrates = np.stack(winrates)
-        # df_rows = {'context': [], 'bid': [], 'winrate': []}
-        # for (context,bid), winrate in np.ndenumerate(winrates):
-        #     df_rows['context'].append(context)
-        #     df_rows['bid'].append(bid)
-        #     df_rows['winrate'].append(winrate)
-        # winrates = pd.DataFrame(df_rows)
-        # winrates.to_csv('results/winrate.csv')
-
-        # raise NotImplementedError
 
         buffer = Buffer()
 
@@ -219,7 +193,7 @@ if __name__ == '__main__':
             episode_win = 0
             episode_optimal_selection = 0
             while not (done or truncated):
-                item, bidding = agent.bid(s)
+                item, bidding = agent.bid(s, t)
                 a = {'item' : item, 'bid' : np.array([bidding])}
                 s_, r, done, truncated, info = auction.step(a)
                 buffer.append(s, item, bidding, r, s_, (done or truncated), info['win'], info['outcome'])
@@ -228,14 +202,16 @@ if __name__ == '__main__':
                 episode_win += float(info['win'])
                 episode_optimal_selection += float(info['optimal_selection'])
                 s = s_
-            
-            if (i+1)%update_interval==0:
-                agent.update()
+
+                if t%update_interval==0:
+                    agent.update(int(t/update_interval))
 
             reward[run,i] = episode_reward
             win_rate[run,i] = episode_win / (t - start)
             optimal_selection[run,i] = episode_optimal_selection / (t - start)
             episode_length[run,i] = t - start
+            uncertainty[run,i] = agent.get_uncertainty(t-start)
+            budget_left[run,i] = s[-1]
 
     reward = average(reward, record_interval)
     optimal_selection = average(optimal_selection, record_interval)
@@ -261,3 +237,11 @@ if __name__ == '__main__':
     episode_length_df = numpy2df(episode_length, 'Episode Length')
     episode_length_df.to_csv(output_dir + '/episode_length.csv', index=False)
     plot_measure(episode_length_df, 'Episode Length', record_interval, output_dir)
+
+    uncertainty_df = numpy2df(uncertainty, 'Uncertainty')
+    uncertainty_df.to_csv(output_dir + '/uncertainty.csv', index=False)
+    plot_measure(uncertainty_df, 'Uncertainty', record_interval, output_dir)
+
+    budget_df = numpy2df(budget_left, 'Remaining Budget')
+    budget_df.to_csv(output_dir + '/budget.csv', index=False)
+    plot_measure(budget_df, 'Remaining Budget', record_interval, output_dir)
