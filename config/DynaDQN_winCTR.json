@@ -11,8 +11,8 @@
   "tau": 0.1,
   "num_grad_steps": 10,
   "exploration_length": 5000,
-  "start_simul": 1000,
-  "simulation_length": 20,
+  "start_simul": 800,
+  "simulation_length": 50,
   "num_grad_steps_sim": 100,
   "winrate": {
     
