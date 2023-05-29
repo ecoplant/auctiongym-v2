@@ -572,12 +572,14 @@ class DynaDQN_winCTR(Agent):
             
         if len(self.buffer.states) > self.start_simul:
             ###Train local network with simulated experiences
+            # sample current state and next state from buffer. Select action.
+            # action taken according to current q-network with states sampled from replay buffer. Should I use such actions or sample the actions too?
+            # action taken according to current q-network with states smapled from replay buffer works better.
             for i in range(self.simulation_length):
                 states, item_inds, biddings, _, next_states, _ = self.buffer.sample(self.batch_size)
                 for j in range(self.batch_size):
                     state = states[j]
                     n_values_search = int(100*np.max(self.item_values))
-                    remaining_budget = state[self.context_dim]
                     b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
                     x = torch.Tensor(np.hstack([np.tile(state, (n_values_search * self.num_items, 1)), np.tile(self.items, (n_values_search, 1)), \
                                    np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])).to(self.device)
@@ -588,14 +590,13 @@ class DynaDQN_winCTR(Agent):
                         item = self.rng.choice(self.num_items, 1).item()
                     item_inds[j] = item
                     biddings[j] = bid
-                # action taken according to current q-network with states sampled from replay buffer. Should I use such actions or sample the actions too?
-                # action taken according to current q-network with states smapled form replay buffer works better.
 
                 predicted_targets = self.local_network(torch.Tensor(np.hstack([states, self.items[item_inds], biddings.reshape(-1, 1)])).to(self.device)).squeeze()
 
                 # Simulate experiences from (s,a)
                 with torch.no_grad():
                     contexts = states[:, :self.context_dim]
+                    remaining_budget = states[:, self.context_dim]
                     winrate = self.winrate_model(torch.Tensor(np.hstack([contexts, biddings.reshape(-1,1)])).to(self.device)).squeeze() # outputs next context and reward
                     CTR = self.CTR_model (torch.Tensor(np.hstack([contexts, self.items[item_inds]])).to(self.device)).squeeze() # outputs next context and reward
                     # Should I generate the next state? or just use from the buffer?
@@ -605,6 +606,7 @@ class DynaDQN_winCTR(Agent):
                     n_values_search = int(100*np.max(self.item_values))
                     b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
                     tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)]) 
+                    next_states[:, self.context_dim] = remaining_budget - wins * biddings
                     x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
                                                 np.tile(tmp, (self.batch_size, 1))])).to(self.device)
                     labels = torch.Tensor(rewards).to(self.device) + torch.max(self.target_network(x).reshape(self.batch_size,-1), dim=1, keepdim=False).values
@@ -616,22 +618,3 @@ class DynaDQN_winCTR(Agent):
         for target_param, local_param in zip(self.target_network.parameters(), self.local_network.parameters()):
             target_param.data.copy_(self.tau * local_param + (1-self.tau) * target_param)
 
-            ################## SEED 마다 어떻게 달라지는지 보자???
-            ################## double DQN? clipped DQN? 
-            ################## 그다음엔 exploration 어떻게 할지
-            ################## allocation 과 bidding 모두 exploration 이 필요함. bidding 이 너무 적으면 allocation 에도 문제가 생김?
-            ## uncerainty bound 가 필요한 ucb 는 dqn 에서 안됨. arm 을 선택한 횟수를 정의하기 애매함. linear regression 은 weight 의 uncertainty 를 구할 수 있는데 NN 은 그게 어려움.
-            ## linaer Q_learning. linear regression 으론 covariance matrix 도 학습할 수 있음. Allocation 만 linear 하게?
-            ## winrate 와 CTR 을 linear 하게? winrate 는 모든 state 에 대해서, bidding 이 0이면 0, bidding 이 매우 크면 1 이어야 한다. 이러한 logistic model 을 만들기가 어려움.
-            ## q value function 은 uncertainty 자체가 파라미터.
-
-            ## exploration 은 linear 에서만 해보자. 
-
-            ## context 는 replay 에서 가져오고, 옥션에서 이길지 질지 cvr 이랑 winrate 으로 r 을 뽑아내라. -> 물어봐라. Agent 는 원래 winrate model 나 CTR 에 대한 정보가 없어야 하는데, 그 모델을 써서 시뮬레이터를 만드는게 유의미한가? 아예 dynamics 에 대해 아무 정보가 없는 상태에서 experience 들을 바탕으로 모델을 배워야 하는거 아닌가?
-            ## tau 를 좀 크게 해라. 0.001 같은걸로 하면 에피소드 끝날때마다 함.
-
-            ## budget, horizon 은 그대로 하고 파라미터 바꿔가면서 잘 되는거 찾자. 
-
-
-
-            # Neural contextual bandit with UCB based exploration 으로 allocation 에서의 explore 를 구현할 수 있지 않을까? 
