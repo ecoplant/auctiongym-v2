@@ -50,10 +50,10 @@ class Bandit(Agent):
     def select_item(self, context):
         # Estimate CTR for all items
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
-            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context, UCB=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context)
             estim_CTRs = estim_CTRs + self.allocator.c * uncertainty
         elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
-            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context, TS=True)
+            estim_CTRs, uncertainty = self.allocator.estimate_CTR(context)
         else:
             estim_CTRs = self.allocator.estimate_CTR(context)
             uncertainty = np.zeros_like(estim_CTRs)
@@ -71,7 +71,7 @@ class Bandit(Agent):
     def bid(self, state, t, value=None, prob_win=None, b_grid=None):
         self.clock += 1
         context = state[:self.context_dim]
-        item, estimated_CTR = self.select_item(context)
+        item, estimated_CTR, uncertainty = self.select_item(context)
         optimistic_CTR = estimated_CTR
         value = self.item_values[item]
 
@@ -84,13 +84,13 @@ class Bandit(Agent):
             bid = self.bidder.bid(value, estimated_CTR, prob_win, b_grid)
         else:
             if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
-                mean_CTR = self.allocator.estimate_CTR(context, UCB=False)
+                mean_CTR, _ = self.allocator.estimate_CTR(context)
                 estimated_CTR = mean_CTR[item]
-                bid = self.bidder.bid(value, context, optimistic_CTR)
+                bid = self.bidder.bid(value, context, estimated_CTR)
             elif not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='TS':
-                mean_CTR = self.allocator.estimate_CTR(context, TS=False)
+                mean_CTR, _ = self.allocator.estimate_CTR(context)
                 estimated_CTR = mean_CTR[item]
-                bid = self.bidder.bid(value, context, optimistic_CTR)
+                bid = self.bidder.bid(value, context, estimated_CTR)
             else:
                 bid = self.bidder.bid(value, context, estimated_CTR)
         return item, np.clip(bid, 0.0, state[-2])
@@ -105,7 +105,10 @@ class Bandit(Agent):
         self.bidder.update(contexts, biddings, wins)
     
     def get_uncertainty(self, len):
-        return np.mean(self.allocator.uncertainty[-len:])
+        if isinstance(self.allocator, OracleAllocator):
+            return 0.0
+        else:
+            return np.mean(self.allocator.uncertainty[-len:])
 
 class DQN(Agent):
     ''' A MDP style agent '''
@@ -350,23 +353,38 @@ class TD3(Agent):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.allocator = eval(f"{config['allocator']['type']}(rng=rng, item_features=item_features, context_dim=context_dim{parse_kwargs(config['allocator']['kwargs'])})")
 
-        self.actor = Actor(self.context_dim+2+self.feature_dim+1, config['hidden_dim']).to(self.device)
-        self.actor_target = copy.deepcopy(self.actor)
-        self.actor_optim = optim.Adam(self.actor.parameters(), lr = config['lr'])
-
-        self.critic = Critic(self.context_dim+2+self.feature_dim+2, config['hidden_dim']).to(self.device)
+        self.critic = Critic(self.context_dim+2+self.feature_dim+1, config['hidden_dim']).to(self.device)
         self.critic_target = copy.deepcopy(self.critic)
         self.critic_optim = optim.Adam(self.critic.parameters(), lr = config['lr'])
 
+        self.exploration_strategy = config['exploration_strategy']
+        if self.exploration_strategy=='Eps-Greedy':
+            self.actor = Actor(self.context_dim+2+self.feature_dim+1, config['hidden_dim']).to(self.device)
+            self.actor_target = copy.deepcopy(self.actor)
+            self.eps_init = self.eps = config['eps_init']
+            self.eps_min = config['eps_min']
+            self.eps_decay = config['eps_decay']
+        elif self.exploration_strategy=='Gaussian Noise':
+            self.actor = Actor(self.context_dim+2+self.feature_dim+1, config['hidden_dim']).to(self.device)
+            self.actor_target = copy.deepcopy(self.actor)
+            self.noise_init = self.noise = config['noise_init']
+            self.noise_min = config['noise_min']
+            self.noise_decay = config['noise_decay']
+        elif self.exploration_strategy=='Noisy Network':
+            self.actor = NoisyActor(self.context_dim+2+self.feature_dim+1, config['hidden_dim']).to(self.device)
+            self.actor_target = copy.deepcopy(self.actor)
+
+        self.actor_optim = optim.Adam(self.actor.parameters(), lr = config['lr'])
         self.batch_size = config['batch_size']
         self.num_grad_steps = config['num_grad_steps']
         self.tau = config['tau']
-        self.noise = config['noise']
 
-        self.exploration_length = config['exploration_length']
+        self.winrate = eval(f"{config['winrate']['type']}(rng=rng, context_dim=context_dim{parse_kwargs(config['winrate']['kwargs'])})")
+        self.simulation_steps = config['simulation_steps']
+
         self.Gram = np.eye(self.context_dim)
 
-    def select_item(self, context):
+    def select_item(self, context, t):
         # Estimate CTR for all items
         if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='UCB':
             estim_CTRs, uncertainty = self.allocator.estimate_CTR(context)
@@ -381,33 +399,41 @@ class TD3(Agent):
         estim_values = estim_CTRs * self.item_values
         best_item = np.argmax(estim_values)
 
-        if not isinstance(self.allocator, OracleAllocator) and self.allocator.mode=='Epsilon-greedy':
+        if self.allocator.mode=='Epsilon-greedy':
             if self.rng.uniform(0,1)<self.allocator.eps:
                 best_item = self.rng.choice(self.num_items, 1).item()
-
+        
         return best_item, estim_CTRs[best_item], uncertainty[best_item]
     
     def bid(self, state, t):
         self.clock += 1
         context = state[:self.context_dim]
-        item, estimated_CTR, uncertainty = self.select_item(context)
+        item, estimated_CTR, uncertainty = self.select_item(context, t)
         value = self.item_values[item]
 
-        if self.clock < self.exploration_length:
-            bid = value * self.rng.random()
-        else:
+        if self.exploration_strategy=='Eps-Greedy':
+            if self.rng.uniform(0, 1) < self.eps:
+                    bid = self.item_values[item] * self.rng.random()
+            else:
+                x = torch.Tensor(np.concatenate([state, self.items[item], np.array([estimated_CTR])])).to(self.device)
+                bid = np.clip(value * self.actor(x).item(), 0.0, value)
+            self.eps = np.minimum(self.eps*self.eps_decay, self.eps_min)
+        elif self.exploration_strategy=='Gaussian Noise':
             x = torch.Tensor(np.concatenate([state, self.items[item], np.array([estimated_CTR])])).to(self.device)
-            bid = value * self.actor(x).item()
-            count = context @ self.Gram @ context / (np.sum(context**2) + 1e-2)
-
-            bid = np.clip(bid+self.rng.normal(0.0,self.noise), 0.0, value)
+            bid = np.clip(value * self.actor(x).item() + self.noise * self.rng.normal(), 0.0, value)
+            self.noise = np.minimum(self.noise*self.noise_decay, self.noise_min)
+        elif self.exploration_strategy=='Noisy Network':
+            x = torch.Tensor(np.concatenate([state, self.items[item], np.array([estimated_CTR])])).to(self.device)
+            bid = np.clip(value * self.actor(x).item(), 0.0, value)
 
         return item,np.clip(bid, 0.0, state[-2])
 
     def update(self, t):
+        # update CVR estimator and win rate estimator
         states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
         contexts = states[:, :self.context_dim]
         self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins], t)
+        self.winrate.update(contexts, biddings, wins)
 
         if len(self.buffer.states)<self.batch_size:
             return
@@ -416,40 +442,95 @@ class TD3(Agent):
         self.critic.train()
         self.critic_target.eval()
 
+        # update actor and critic using real data
         for i in range(self.num_grad_steps):
             states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample(self.batch_size)
-            with torch.no_grad():
-                next_contexts = next_states[:, :self.context_dim]
-                next_estimated_CTRs = self.allocator.estimate_CTR_batched(next_contexts)
-                next_items = np.argmax(next_estimated_CTRs, axis=1)
-                next_estimated_CTRs = np.max(next_estimated_CTRs, axis=1).reshape(-1,1)
-
-                x = torch.Tensor(np.concatenate([next_states, self.items[next_items], next_estimated_CTRs], axis=1)).to(self.device)
-                next_biddings = self.actor_target(x).numpy(force=True).reshape(-1,1)
-
-                x = torch.Tensor(np.concatenate([next_states, self.items[next_items], next_estimated_CTRs, next_biddings], axis=1)).to(self.device)
-                target_q1, target_q2 = self.critic_target(x)
-                target_q = torch.min(target_q1, target_q2)
-                target_q = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * target_q.squeeze()
-            
             contexts = states[:, :self.context_dim]
             estimated_CTRs = np.max(self.allocator.estimate_CTR_batched(contexts), axis=1).reshape(-1,1)
-            x = torch.Tensor(np.concatenate([states, self.items[item_inds], estimated_CTRs, biddings.reshape(-1,1)], axis=1)).to(self.device)
+            x = torch.Tensor(np.concatenate([states, self.items[item_inds], biddings.reshape(-1,1)], axis=1)).to(self.device)
             q1, q2 = self.critic(x)
+
+            with torch.no_grad():
+                n_values_search = int(100*np.max(self.item_values))
+                b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
+                x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                        np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                if self.exploration_strategy=='Noisy Network':
+                    next_q1, next_q2  = self.critic_target(x, sample=False)
+                else:
+                    next_q1, next_q2  = self.critic_target(x)
+                target_q1 = torch.max(next_q1.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q2 = torch.max(next_q2.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * torch.min(target_q1, target_q2)
             loss = criterion(q1.squeeze(), target_q) + criterion(q2.squeeze(), target_q)
             self.critic_optim.zero_grad()
             loss.backward()
             self.critic_optim.step()
-        
-        if t % 2 == 0:
-            x = torch.Tensor(np.concatenate([states, self.items[item_inds], estimated_CTRs], axis=1)).to(self.device)
-            biddings = self.actor(x)
-            x = torch.concat([x, biddings], dim=1)
-            loss = -self.critic.Q1(x).mean()
-            self.actor_optim.zero_grad()
-            loss.backward()
-            self.actor_optim.step()
 
+            if t % 2 == 0:
+                x = torch.Tensor(np.concatenate([states, self.items[item_inds], estimated_CTRs], axis=1)).to(self.device)
+                biddings = self.actor(x)
+                x = torch.Tensor(np.concatenate([states, self.items[item_inds]], axis=1)).to(self.device)
+                x = torch.concat([x, biddings], dim=1)
+                loss = -self.critic.Q1(x).mean()
+                self.actor_optim.zero_grad()
+                loss.backward()
+                self.actor_optim.step()
+
+        # update actor and critic using simulated experiences
+        for i in range(self.simulation_steps):
+            states, _, _, _, _, _ = self.buffer.sample(self.batch_size)
+
+            contexts = states[:, :self.context_dim]
+            item_inds = self.rng.choice(self.num_items, size=(self.batch_size,))
+            estimated_CTRs = np.max(self.allocator.estimate_CTR_batched(contexts), axis=1).reshape(-1,1)
+            x = torch.Tensor(np.concatenate([states, self.items[item_inds], estimated_CTRs], axis=1)).to(self.device)
+            biddings = self.actor(x).numpy(force=True)
+            
+            x = torch.Tensor(np.concatenate([contexts, biddings], axis=1)).to(self.device)
+            if isinstance(self.winrate, OracleBidder):
+                prob_win = []
+                for j in range(self.batch_size):
+                    prob_win.append(self.auction.winrate_model(contexts[j], biddings[j]))
+                prob_win = np.array(prob_win).reshape(-1)
+            else:
+                prob_win = self.winrate.winrate_model(x).numpy(force=True).reshape(-1)
+            wins = self.rng.binomial(1, prob_win)
+            outcomes = self.rng.binomial(1, estimated_CTRs.reshape(-1))
+            rewards = self.item_values[item_inds] * wins * outcomes
+            assert len(rewards.shape)==1
+            
+            x = torch.Tensor(np.concatenate([states, self.items[item_inds], biddings.reshape(-1,1)], axis=1)).to(self.device)
+            q1, q2 = self.critic(x)
+
+            with torch.no_grad():
+                n_values_search = int(100*np.max(self.item_values))
+                b_grid = np.linspace(0, 1.5*np.max(self.item_values), n_values_search)
+                tmp = np.hstack([np.tile(self.items, (n_values_search, 1)), np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)])
+                x = torch.Tensor(np.hstack([np.tile(next_states, (1, n_values_search * self.num_items)).reshape(-1, self.context_dim+2),\
+                                        np.tile(tmp, (self.batch_size, 1))])).to(self.device)
+                if self.exploration_strategy=='Noisy Network':
+                    next_q1, next_q2  = self.critic_target(x, sample=False)
+                else:
+                    next_q1, next_q2  = self.critic_target(x)
+                target_q1 = torch.max(next_q1.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q2 = torch.max(next_q2.reshape(self.batch_size,-1), dim=1, keepdim=False).values
+                target_q = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * torch.min(target_q1, target_q2)
+            loss = criterion(q1.squeeze(), target_q) + criterion(q2.squeeze(), target_q)
+            self.critic_optim.zero_grad()
+            loss.backward()
+            self.critic_optim.step()
+
+            if t % 2 == 0:
+                x = torch.Tensor(np.concatenate([states, self.items[item_inds], biddings], axis=1)).to(self.device)
+                loss = -self.critic.Q1(x).mean()
+                self.actor_optim.zero_grad()
+                loss.backward()
+                self.actor_optim.step()
+        
+        # polyak average network weights
+        if t % 2 == 0:
             for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
                 target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 

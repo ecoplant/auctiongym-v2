@@ -330,6 +330,18 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return torch.sigmoid(self.fc3(x))
+    
+class NoisyActor(nn.Module):
+    def __init__(self, input_dim, hidden_dim, var_scale):
+        super().__init__()
+        self.fc1 = BayesianLinear(input_dim, hidden_dim, var_scale)
+        self.fc2 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
+        self.fc3 = BayesianLinear(hidden_dim, 1, var_scale)
+    
+    def forward(self, x, sample=True):
+        x = F.relu(self.fc1(x, sample))
+        x = F.relu(self.fc2(x, sample))
+        return torch.sigmoid(self.fc3(x, sample))
 
 class Critic(nn.Module):
     def __init__(self, input_dim, hidden_dim):

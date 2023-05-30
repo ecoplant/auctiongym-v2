@@ -211,7 +211,7 @@ if __name__ == '__main__':
             optimal_selection[run,i] = episode_optimal_selection / (t - start)
             episode_length[run,i] = t - start
             uncertainty[run,i] = agent.get_uncertainty(t-start)
-            budget_left[run,i] = s[-1]
+            budget_left[run,i] = s[-2]
 
     reward = average(reward, record_interval)
     optimal_selection = average(optimal_selection, record_interval)

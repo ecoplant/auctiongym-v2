@@ -21,6 +21,8 @@ class OracleAllocator(Allocator):
     def __init__(self, rng, item_features, context_dim):
         super().__init__(rng, item_features)
         self.context_dim = context_dim
+        self.mode = 'Epsilon-greedy'
+        self.eps = 0.1
 
     def set_CTR_model(self, M):
         self.M = M

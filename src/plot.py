@@ -46,7 +46,7 @@ def plot_measure(df, measure_name, window_size, output_dir, hue=None):
     plt.xticks(ticks=np.linspace(0,max_step,11).astype(int),
                labels=np.linspace(0,max_step*window_size,11).astype(int),fontsize=FONTSIZE-2)
     plt.ylabel(f'{measure_name}', fontsize=FONTSIZE)
-    plt.xlabel("Time", fontsize=FONTSIZE)
+    plt.xlabel("Episode", fontsize=FONTSIZE)
     factor = 1.1 if min_measure < 0 else 0.9
     plt.ylim(min_measure * factor, max_measure * 1.1)
     plt.yticks(fontsize=FONTSIZE - 2)
