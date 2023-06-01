@@ -416,7 +416,8 @@ class TD3Q(Agent):
                     bid = self.item_values[item] * self.rng.random()
             else:
                 x = torch.Tensor(np.concatenate([state, self.items[item], np.array([estimated_CTR])])).to(self.device)
-                bid = np.clip(value * self.actor(x).item(), 0.0, value)
+                # bid = np.clip(value * self.actor(x).item(), 0.0, value)
+                bid = self.actor(x).item()
             self.eps = np.maximum(self.eps*self.eps_decay, self.eps_min)
         elif self.exploration_strategy=='Gaussian Noise':
             x = torch.Tensor(np.concatenate([state, self.items[item], np.array([estimated_CTR])])).to(self.device)
@@ -441,6 +442,8 @@ class TD3Q(Agent):
         criterion = nn.MSELoss()
         self.critic.train()
         self.critic_target.eval()
+        self.actor.train()
+        self.actor_target.eval()
 
         # update actor and critic using real data
         for i in range(self.num_grad_steps):

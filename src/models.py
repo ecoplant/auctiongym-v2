@@ -330,7 +330,7 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         return torch.sigmoid(self.fc3(x))
-    
+        
 class NoisyActor(nn.Module):
     def __init__(self, input_dim, hidden_dim, var_scale):
         super().__init__()

@@ -21,5 +21,8 @@
     "eps_init": 1.0,
     "eps_min": 0.01,
     "eps_decay": 0.999,
+    "noise_init": 1.0,
+    "noise_min": 0.01,
+    "noise_decay": 0.999,
     "output_dir": "results/Oracle_TD3"
 }

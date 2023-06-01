@@ -160,7 +160,7 @@ if __name__ == '__main__':
 
     # num_records = int(num_episodes / record_interval)
     # CTR_RMSE = np.zeros((num_runs, num_records))
-
+    budgets = []
     run2item_features, run2item_values = draw_features(rng, num_runs, feature_dim)
 
     for run in range(num_runs):
@@ -318,3 +318,48 @@ if __name__ == '__main__':
     budget_df = numpy2df(budget_left, 'Remaining Budget')
     budget_df.to_csv(output_dir + '/budget.csv', index=False)
     plot_measure(budget_df, 'Remaining Budget', record_interval, output_dir)
+
+    #plot q-function
+    states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
+    temp = np.concatenate([np.tile(np.linspace(1, horizon, 20),(1,50)).reshape(-1,1),
+                           np.tile(np.linspace(1,budget,50),(20,1)).reshape(-1,1)], axis=1)
+    states[:,-2:] = temp
+    q = np.zeros((1000,3))
+    q[:,:-1] = states[:,-2:]
+    x = torch.Tensor(np.concatenate([states, agent.items[item_inds], biddings.reshape(-1,1)], axis=1)).to(agent.device)
+    q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+
+    df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
+    for i in range(q.shape[0]):
+        df_rows['Step Left'].append(q[i,0])
+        df_rows['Budget Left'].append(q[i,1])
+        df_rows['Q'].append(q[i,2])
+    q_df = pd.DataFrame(df_rows)
+
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
+    sns.lineplot(data=q_df, x="Step Left", y='Q', ax=axes)
+    plt.ylabel('Q', fontsize=FONTSIZE)
+    plt.xlabel("Step Left", fontsize=FONTSIZE)
+    plt.grid(True, 'major', 'y', ls='-', lw=.5, c='k', alpha=.3)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/q_vs_step.png", bbox_inches='tight')
+
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
+    sns.lineplot(data=q_df, x="Budget Left", y='Q', ax=axes)
+    plt.ylabel('Q', fontsize=FONTSIZE)
+    plt.xlabel("Budget Left", fontsize=FONTSIZE)
+    plt.grid(True, 'major', 'y', ls='-', lw=.5, c='k', alpha=.3)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/q_vs_budget.png", bbox_inches='tight')
+
+    budget_array = np.sort(np.array(budgets))
+    df_rows = {'Encountered Budget': []}
+    for i in range(budget_array.shape[0]):
+        df_rows['Encountered Budget'].append(budget_array[i])
+    budgets_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Encountered Budget', fontsize = FONTSIZE + 2)
+    sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
+    plt.savefig(f"{output_dir}/encountered_budgets.png", bbox_inches='tight')
