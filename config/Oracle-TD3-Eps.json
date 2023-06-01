@@ -23,6 +23,6 @@
     "exploration_strategy": "Eps-Greedy",
     "eps_init": 1.0,
     "eps_min": 0.01,
-    "eps_decay": 0.9999,
+    "eps_decay": 0.9995,
     "output_dir": "results/Oracle_TD3"
 }

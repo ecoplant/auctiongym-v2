@@ -678,16 +678,17 @@ class TD3(Agent):
 
         # update actor and critic using simulated experiences
         for i in range(self.simulation_steps):
-            states, _, _, _, _, _ = self.buffer.sample(self.batch_size)
+            states, _, _, _, next_states, _ = self.buffer.sample(self.batch_size)
 
             contexts = states[:, :self.context_dim]
             resources = states[:,self.context_dim:]
             item_inds = self.rng.choice(self.num_items, size=(self.batch_size,))
             estimated_CTRs = np.max(self.allocator.estimate_CTR_batched(contexts), axis=1).reshape(-1,1)
             x = torch.Tensor(np.concatenate([contexts, self.items[item_inds], estimated_CTRs, resources], axis=1)).to(self.device)
-            biddings = self.actor(x).numpy(force=True)
+            biddings = self.actor_target(x).numpy(force=True).reshape(-1)
+            biddings = np.clip(biddings + self.item_values[item_inds] * self.rng.normal(0,1,size=(self.batch_size,)), 0, states[:,-2])
             
-            x = torch.Tensor(np.concatenate([contexts, biddings], axis=1)).to(self.device)
+            x = torch.Tensor(np.concatenate([contexts, biddings.reshape(-1,1)], axis=1)).to(self.device)
             if isinstance(self.winrate, OracleBidder):
                 prob_win = []
                 for j in range(self.batch_size):
@@ -705,7 +706,9 @@ class TD3(Agent):
 
             with torch.no_grad():
                 next_contexts = next_states[:, :self.context_dim]
-                next_resources = next_states[:, self.context_dim:]
+                shuffle_ind = self.rng.choice(self.batch_size, size=self.batch_size, replace=False)
+                next_contexts = next_contexts[shuffle_ind]
+                next_resources = np.concatenate([(contexts[:,-2]-biddings*wins).reshape(-1,1), (contexts[:,-1]-1).reshape(-1,1)], axis=1)
                 next_estimated_CTRs = self.allocator.estimate_CTR_batched(next_contexts)
                 next_items = np.argmax(next_estimated_CTRs, axis=1)
                 next_estimated_CTRs = np.max(next_estimated_CTRs, axis=1).reshape(-1,1)
@@ -723,7 +726,7 @@ class TD3(Agent):
             self.critic_optim.step()
 
             if t % 2 == 0:
-                x = torch.Tensor(np.concatenate([contexts, self.items[item_inds], resources, biddings], axis=1)).to(self.device)
+                x = torch.Tensor(np.concatenate([contexts, self.items[item_inds], resources, biddings.reshape(-1,1)], axis=1)).to(self.device)
                 loss = -self.critic.Q1(x).mean()
                 self.actor_optim.zero_grad()
                 loss.backward()

@@ -23,6 +23,6 @@
     "exploration_strategy": "Gaussian Noise",
     "noise_init": 1.0,
     "noise_min": 0.01,
-    "noise_decay": 0.9999,
+    "noise_decay": 0.9995,
     "output_dir": "results/Oracle_TD3"
 }
