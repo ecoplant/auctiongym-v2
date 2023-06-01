@@ -7,8 +7,8 @@
     "lr": 1e-3,
     "tau": 0.01,
     "exploration_strategy": "Eps-Greedy",
-    "epsilon_init": 1.0,
-    "epsilon_min": 0.01,
+    "eps_init": 1.0,
+    "eps_min": 0.01,
     "eps_decay": 0.999,
     "output_dir": "results/DQN-EpsGreedy"
 }

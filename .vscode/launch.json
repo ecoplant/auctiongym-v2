@@ -9,7 +9,7 @@
             "type": "python",
             "request": "launch",
             "program": "src/main.py",
-            "args": ["config/DQN.json"],
+            "args": ["config/NeuralEpsBandit.json"],
             "console": "integratedTerminal",
             "justMyCode": true
         }

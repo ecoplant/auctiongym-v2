@@ -152,6 +152,7 @@ if __name__ == '__main__':
     episode_length = np.zeros((num_runs, num_episodes))
     uncertainty = np.zeros((num_runs, num_episodes))
     budget_left = np.zeros((num_runs, num_episodes))
+    budgets = []
 
     # estimated_CTR = np.zeros((num_runs, num_episodes))
 
@@ -183,6 +184,31 @@ if __name__ == '__main__':
                 agent.allocator.set_CTR_model(auction.CTR_model.model.M)
         except:
             pass
+        
+        # probw = np.zeros((100,10))
+        # for k in range(100):
+        #     context = auction.generate_context()
+        #     bidding = np.linspace(0.1, 1.0, 10)
+        #     prob_win = auction.winrate_model(context, bidding)
+        #     probw[k] = np.array(prob_win).reshape(-1)
+
+        # df_rows = {'context': [], 'bidding': [], 'probw': []}
+        # for k in range(100):
+        #     for l in range(10):
+        #         df_rows['context'].append(k)
+        #         df_rows['bidding'].append(bidding[l])
+        #         df_rows['probw'].append(probw[k,l])
+        # q_df = pd.DataFrame(df_rows)
+
+        # fig, axes = plt.subplots(figsize=FIGSIZE)
+        # plt.title('probw', fontsize=FONTSIZE + 2)
+        # sns.lineplot(data=q_df, x="bidding", y='probw',hue='context', ax=axes)
+        # plt.ylabel('prob', fontsize=FONTSIZE)
+        # plt.xlabel("bidding", fontsize=FONTSIZE)
+        # plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
+        # plt.tight_layout()
+        # plt.savefig(f"{output_dir}/probw.png", bbox_inches='tight')
+        # exit(1)
 
         t = 0
         for i in tqdm(range(num_episodes), desc=f'run {run}'):
@@ -193,6 +219,7 @@ if __name__ == '__main__':
             episode_win = 0
             episode_optimal_selection = 0
             while not (done or truncated):
+                
                 item, bidding = agent.bid(s, t)
                 a = {'item' : item, 'bid' : np.array([bidding])}
                 s_, r, done, truncated, info = auction.step(a)
@@ -202,6 +229,7 @@ if __name__ == '__main__':
                 episode_win += float(info['win'])
                 episode_optimal_selection += float(info['optimal_selection'])
                 s = s_
+                budgets.append(s[-2])
 
                 if t%update_interval==0:
                     agent.update(int(t/update_interval))
@@ -212,6 +240,51 @@ if __name__ == '__main__':
             episode_length[run,i] = t - start
             uncertainty[run,i] = agent.get_uncertainty(t-start)
             budget_left[run,i] = s[-2]
+    
+    states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
+    temp = np.concatenate([np.tile(np.linspace(1,budget,50),(20,1)).reshape(-1,1),
+                           np.tile(np.linspace(1, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
+    contexts = states[:, :context_dim]
+    q = np.zeros((1000,3))
+    q[:,:-1] = states[:,-2:]
+    biddings = np.random.uniform(0,1,size=1000)
+    x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
+    q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+
+    df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
+    for i in range(q.shape[0]):
+        df_rows['Step Left'].append(q[i,0])
+        df_rows['Budget Left'].append(q[i,1])
+        df_rows['Q'].append(q[i,2])
+    q_df = pd.DataFrame(df_rows)
+
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
+    sns.lineplot(data=q_df, x="Step Left", y='Q', ax=axes)
+    plt.ylabel('Q', fontsize=FONTSIZE)
+    plt.xlabel("Step Left", fontsize=FONTSIZE)
+    plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/q_vs_step.png", bbox_inches='tight')
+
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
+    sns.lineplot(data=q_df, x="Budget Left", y='Q', ax=axes)
+    plt.ylabel('Q', fontsize=FONTSIZE)
+    plt.xlabel("Budget Left", fontsize=FONTSIZE)
+    plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/q_vs_budget.png", bbox_inches='tight')
+
+    budget_array = np.sort(np.array(budgets))
+    df_rows = {'Encountered Budget': []}
+    for i in range(budget_array.shape[0]):
+        df_rows['Encountered Budget'].append(budget_array[i])
+    budgets_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Encountered Budget', fontsize = FONTSIZE + 2)
+    sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
+    plt.savefig(f"{output_dir}/encountered_budgets.png", bbox_inches='tight')
 
     reward = average(reward, record_interval)
     optimal_selection = average(optimal_selection, record_interval)

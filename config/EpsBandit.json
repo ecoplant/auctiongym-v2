@@ -5,8 +5,8 @@
         "type": "LogisticAllocator",
         "kwargs":{
             "lr": 1e-3,
-            "mode": "\"UCB\"",
-            "c": 1.0
+            "mode": "\"Eps-greedy\"",
+            "eps": 0.1
         }
     },
     "bidder":{
@@ -14,5 +14,6 @@
         "kwargs":{
         }
     },
-    "output_dir": "results/"
+    "exploration_length": 0,
+    "output_dir": "results/EpsBandit"
 }
