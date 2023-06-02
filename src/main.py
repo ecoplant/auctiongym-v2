@@ -15,6 +15,7 @@ from Allocator import *
 from Auction import Auction
 from Bidder import * 
 from plot import *
+from models import *
 
 class Buffer:
     def __init__(self):
@@ -47,6 +48,11 @@ class Buffer:
         else:
             inds = np.random.choice(len(self.states), batch_size, replace = False)
             return np.array([self.states[idx] for idx in inds]), np.array([self.items[idx] for idx in inds]), np.array([self.biddings[idx] for idx in inds]), \
+                np.array([self.rewards[idx] for idx in inds]), np.array([self.next_states[idx] for idx in inds]), np.array([self.d[idx] for idx in inds], dtype=bool)
+    
+    def sample_recent(self, batch_size):
+        inds = np.arange(len(self.states)-batch_size, len(self.states))
+        return np.array([self.states[idx] for idx in inds]), np.array([self.items[idx] for idx in inds]), np.array([self.biddings[idx] for idx in inds]), \
                 np.array([self.rewards[idx] for idx in inds]), np.array([self.next_states[idx] for idx in inds]), np.array([self.d[idx] for idx in inds], dtype=bool)
 
 def draw_features(rng, num_runs, feature_dim):
@@ -87,14 +93,8 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
     return CTR_param, winrate_param
 
 def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer, agent_config):
-    if agent_config['type']=='Bandit':
-        return Bandit(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-    elif agent_config['type']=='DQN':
-        return DQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-    elif agent_config['type']=='QBid':
-        return QBid(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-    elif agent_config['type']=='TD3':
-        return TD3(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    if agent_config['type']=='A3C':
+        return A3C(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 
 if __name__ == '__main__':
@@ -153,13 +153,7 @@ if __name__ == '__main__':
     uncertainty = np.zeros((num_runs, num_episodes))
     budget_left = np.zeros((num_runs, num_episodes))
     budgets = []
-
-    # estimated_CTR = np.zeros((num_runs, num_episodes))
-
-    # bidding_error_buffer = np.zeros((record_interval))
-
-    # num_records = int(num_episodes / record_interval)
-    # CTR_RMSE = np.zeros((num_runs, num_records))
+    biddings = []
 
     run2item_features, run2item_values = draw_features(rng, num_runs, feature_dim)
 
@@ -173,7 +167,7 @@ if __name__ == '__main__':
             winrate_model = Winrate(winrate_mode, context_dim, winrate_param)
         else:
             winrate_model = Winrate(winrate_mode, context_dim, winrate_param, CTR_model)
-
+        
         buffer = Buffer()
 
         agent = instantiate_agent(rng, agent_config['name'], item_features, item_values, context_dim, buffer, agent_config)
@@ -184,31 +178,6 @@ if __name__ == '__main__':
                 agent.allocator.set_CTR_model(auction.CTR_model.model.M)
         except:
             pass
-        
-        # probw = np.zeros((100,10))
-        # for k in range(100):
-        #     context = auction.generate_context()
-        #     bidding = np.linspace(0.1, 1.0, 10)
-        #     prob_win = auction.winrate_model(context, bidding)
-        #     probw[k] = np.array(prob_win).reshape(-1)
-
-        # df_rows = {'context': [], 'bidding': [], 'probw': []}
-        # for k in range(100):
-        #     for l in range(10):
-        #         df_rows['context'].append(k)
-        #         df_rows['bidding'].append(bidding[l])
-        #         df_rows['probw'].append(probw[k,l])
-        # q_df = pd.DataFrame(df_rows)
-
-        # fig, axes = plt.subplots(figsize=FIGSIZE)
-        # plt.title('probw', fontsize=FONTSIZE + 2)
-        # sns.lineplot(data=q_df, x="bidding", y='probw',hue='context', ax=axes)
-        # plt.ylabel('prob', fontsize=FONTSIZE)
-        # plt.xlabel("bidding", fontsize=FONTSIZE)
-        # plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
-        # plt.tight_layout()
-        # plt.savefig(f"{output_dir}/probw.png", bbox_inches='tight')
-        # exit(1)
 
         t = 0
         for i in tqdm(range(num_episodes), desc=f'run {run}'):
@@ -219,7 +188,6 @@ if __name__ == '__main__':
             episode_win = 0
             episode_optimal_selection = 0
             while not (done or truncated):
-                
                 item, bidding = agent.bid(s, t)
                 a = {'item' : item, 'bid' : np.array([bidding])}
                 s_, r, done, truncated, info = auction.step(a)
@@ -230,6 +198,7 @@ if __name__ == '__main__':
                 episode_optimal_selection += float(info['optimal_selection'])
                 s = s_
                 budgets.append(s[-2])
+                biddings.append(bidding)
 
                 if t%update_interval==0:
                     agent.update(int(t/update_interval))
@@ -238,43 +207,45 @@ if __name__ == '__main__':
             win_rate[run,i] = episode_win / (t - start)
             optimal_selection[run,i] = episode_optimal_selection / (t - start)
             episode_length[run,i] = t - start
-            uncertainty[run,i] = agent.get_uncertainty(t-start)
+            # uncertainty[run,i] = agent.get_uncertainty(t-start)
             budget_left[run,i] = s[-2]
+        
     
-    states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
-    temp = np.concatenate([np.tile(np.linspace(1,budget,50),(20,1)).reshape(-1,1),
-                           np.tile(np.linspace(1, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
-    contexts = states[:, :context_dim]
-    q = np.zeros((1000,3))
-    q[:,:-1] = states[:,-2:]
-    biddings = np.random.uniform(0,1,size=1000)
-    x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
-    q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+    contexts = []
+    for i in range(2000):
+        contexts.append(auction.generate_context())
+    contexts = np.stack(contexts)
+    temp = np.concatenate([np.tile(np.linspace(0,budget,10),(20,1)).reshape(-1,1),
+                           np.tile(np.linspace(1,horizon,20),(1,10)).reshape(-1,1)], axis=1)
+    v = np.zeros((2000,3))
+    v[:,:-1] = np.tile(temp, (10,1))
+    x = torch.Tensor(np.concatenate([contexts,np.tile(temp, (10,1))], axis=1)).to(agent.device)
+    v[:,-1] = agent.net.v(x).numpy(force=True).reshape(-1)
 
-    df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
-    for i in range(q.shape[0]):
-        df_rows['Step Left'].append(q[i,0])
-        df_rows['Budget Left'].append(q[i,1])
-        df_rows['Q'].append(q[i,2])
+    df_rows = {'Step Left': [], 'Budget Left': [], 'V': []}
+    for i in range(v.shape[0]):
+        df_rows['Budget Left'].append(v[i,0])
+        df_rows['Step Left'].append(v[i,1])
+        df_rows['V'].append(v[i,2])
     q_df = pd.DataFrame(df_rows)
 
     fig, axes = plt.subplots(figsize=FIGSIZE)
-    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
-    sns.lineplot(data=q_df, x="Step Left", y='Q', ax=axes)
-    plt.ylabel('Q', fontsize=FONTSIZE)
+    plt.title('Avg V value', fontsize=FONTSIZE + 2)
+    sns.lineplot(data=q_df, x="Step Left", y='V', ax=axes)
+    plt.ylabel('V', fontsize=FONTSIZE)
     plt.xlabel("Step Left", fontsize=FONTSIZE)
     plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/q_vs_step.png", bbox_inches='tight')
+    plt.savefig(f"{output_dir}/v_vs_step.png", bbox_inches='tight')
 
     fig, axes = plt.subplots(figsize=FIGSIZE)
-    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
-    sns.lineplot(data=q_df, x="Budget Left", y='Q', ax=axes)
-    plt.ylabel('Q', fontsize=FONTSIZE)
+    plt.title('Avg V value', fontsize=FONTSIZE + 2)
+    sns.lineplot(data=q_df, x="Budget Left", y='V', ax=axes)
+    plt.ylabel('V', fontsize=FONTSIZE)
     plt.xlabel("Budget Left", fontsize=FONTSIZE)
     plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
     plt.tight_layout()
-    plt.savefig(f"{output_dir}/q_vs_budget.png", bbox_inches='tight')
+    plt.savefig(f"{output_dir}/v_vs_budget.png", bbox_inches='tight')
 
     budget_array = np.sort(np.array(budgets))
     df_rows = {'Encountered Budget': []}
@@ -285,6 +256,36 @@ if __name__ == '__main__':
     plt.title('Encountered Budget', fontsize = FONTSIZE + 2)
     sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
     plt.savefig(f"{output_dir}/encountered_budgets.png", bbox_inches='tight')
+
+    budget_array = np.sort(np.array(budgets[-1000:]))
+    df_rows = {'Encountered Budget': []}
+    for i in range(budget_array.shape[0]):
+        df_rows['Encountered Budget'].append(budget_array[i])
+    budgets_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Encountered Budget (last 1000steps)', fontsize = FONTSIZE + 2)
+    sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
+    plt.savefig(f"{output_dir}/encountered_budgets_last.png", bbox_inches='tight')
+
+    bidding_array = np.sort(np.array(biddings))
+    df_rows = {'bidding': []}
+    for i in range(bidding_array.shape[0]):
+        df_rows['bidding'].append(bidding_array[i])
+    bidding_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Bidding', fontsize = FONTSIZE + 2)
+    sns.histplot(data=bidding_df, x="bidding", bins=10)
+    plt.savefig(f"{output_dir}/biddings.png", bbox_inches='tight')
+
+    bidding_array = np.sort(np.array(biddings[-1000:]))
+    df_rows = {'bidding': []}
+    for i in range(bidding_array.shape[0]):
+        df_rows['bidding'].append(bidding_array[i])
+    bidding_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Bidding (last 1000steps)', fontsize = FONTSIZE + 2)
+    sns.histplot(data=bidding_df, x="bidding", bins=10)
+    plt.savefig(f"{output_dir}/biddings_last.png", bbox_inches='tight')
 
     reward = average(reward, record_interval)
     optimal_selection = average(optimal_selection, record_interval)

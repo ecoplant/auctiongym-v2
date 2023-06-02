@@ -306,130 +306,30 @@ class NeuralWinRateEstimator(nn.Module):
             hidden = torch.relu(self.linear1(x))
             logit = self.linear2(hidden)
         return self.BCE(logit, y)
-    
-class QNet(nn.Module):
-    def __init__(self, state_action_size, fc1_size, fc2_size):
+
+
+class Net(nn.Module):
+    def __init__(self, input_dim, hidden_dim, action_dim):
         super().__init__()
-        self.fc1 = nn.Linear(state_action_size, fc1_size)
-        self.fc2 = nn.Linear(fc1_size, fc2_size)
-        self.fc3 = nn.Linear(fc2_size, 1)
+        self.c1 = nn.Linear(input_dim, hidden_dim)
+        self.c2 = nn.Linear(hidden_dim, 1)
+
+        self.a1 = nn.Linear(input_dim, hidden_dim)
+        self.a2 = nn.Linear(hidden_dim, action_dim)
+
+        self.dist = torch.distributions.Categorical
     
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
-
-class Actor(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super().__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, 1)
+    def v(self, x):
+        x = F.relu(self.c1(x))
+        return self.c2(x)
     
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return torch.sigmoid(self.fc3(x))
-    
-class NoisyActor(nn.Module):
-    def __init__(self, input_dim, hidden_dim, var_scale):
-        super().__init__()
-        self.fc1 = BayesianLinear(input_dim, hidden_dim, var_scale)
-        self.fc2 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
-        self.fc3 = BayesianLinear(hidden_dim, 1, var_scale)
-    
-    def forward(self, x, sample=True):
-        x = F.relu(self.fc1(x, sample))
-        x = F.relu(self.fc2(x, sample))
-        return torch.sigmoid(self.fc3(x, sample))
+    def pi(self, x):
+        x = F.relu(self.a1(x))
+        return self.a2(x)
 
-class Critic(nn.Module):
-    def __init__(self, input_dim, hidden_dim, context_dim):
-        super().__init__()
-        self.context_dim = context_dim
-        self.fc1 = nn.Linear(input_dim, hidden_dim-3)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim-3)
-        self.fc3 = nn.Linear(hidden_dim, 1)
-
-        self.fc4 = nn.Linear(input_dim, hidden_dim-3)
-        self.fc5 = nn.Linear(hidden_dim, hidden_dim-3)
-        self.fc6 = nn.Linear(hidden_dim, 1)
-    
-    def forward(self, x):
-        r = x[:,self.context_dim:]
-        q1 = F.relu(self.fc1(x))
-        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
-        q1 = self.fc3(torch.concat([q1, r], dim=1))
-
-        q2 = F.relu(self.fc4(x))
-        q2 = F.relu(self.fc5(torch.concat([q2, r], dim=1)))
-        q2 = self.fc6(torch.concat([q2, r], dim=1))
-
-        return q1, q2
-    
-    def Q1(self, x):
-        r = x[:,self.context_dim:]
-        q1 = F.relu(self.fc1(x))
-        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
-        return self.fc3(torch.concat([q1, r], dim=1))
-
-class DuelingCritic(nn.Module):
-    def __init__(self, input_dim, hidden_dim, context_dim):
-        super().__init__()
-        self.context_dim = context_dim
-        self.fc1 = nn.Linear(input_dim, hidden_dim-3)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim-3)
-        self.fc3 = nn.Linear(hidden_dim, 1)
-
-        self.fc4 = nn.Linear(input_dim, hidden_dim-3)
-        self.fc5 = nn.Linear(hidden_dim, hidden_dim-3)
-        self.fc6 = nn.Linear(hidden_dim, 1)
-    
-    def forward(self, x):
-        r = x[:,self.context_dim:]
-        q1 = F.relu(self.fc1(x))
-        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
-        q1 = F.relu(self.fc3(torch.concat([q1, r], dim=1)))
-
-        q2 = F.relu(self.fc4(x))
-        q2 = F.relu(self.fc5(torch.concat([q2, r], dim=1)))
-        q2 = F.relu(self.fc6(torch.concat([q2, r], dim=1)))
-
-        return q1, q2
-    
-    def Q1(self, x):
-        r = x[:,self.context_dim:]
-        q1 = F.relu(self.fc1(x))
-        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
-        return F.relu(self.fc3(torch.concat([q1, r], dim=1)))
-
-class NoisyCritic(nn.Module):
-    def __init__(self, input_dim, hidden_dim, var_scale):
-        super().__init__()
-        self.fc1 = BayesianLinear(input_dim, hidden_dim, var_scale)
-        self.fc2 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
-        self.fc3 = BayesianLinear(hidden_dim, 1, var_scale)
-
-        self.fc4 = BayesianLinear(input_dim, hidden_dim, var_scale)
-        self.fc5 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
-        self.fc6 = BayesianLinear(hidden_dim, 1, var_scale)
-    
-    def forward(self, x, sample=True):
-        q1 = F.relu(self.fc1(x, sample))
-        q1 = F.relu(self.fc2(q1, sample))
-        q1 = self.fc3(q1, sample)
-
-        q2 = F.relu(self.fc4(x, sample))
-        q2 = F.relu(self.fc5(q2, sample))
-        q2 = self.fc6(q2, sample)
-
-        return q1, q2
-    
-    def Q1(self, x, sample=True):
-        q1 = F.relu(self.fc1(x, sample))
-        q1 = F.relu(self.fc2(q1, sample))
-        return self.fc3(q1, sample)
-    
-    def get_uncertainty(self):
-        u = np.concatenate([self.fc1.get_uncertainty(), self.fc2.get_uncertainty(), self.fc3.get_uncertainty()])
-        return np.mean(u)
+    def act(self, x):
+        self.eval()
+        logits = self.pi(x)
+        prob = F.softmax(logits).data
+        m = self.dist(prob)
+        return m.sample().item()

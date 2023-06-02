@@ -1,28 +1,24 @@
 {
-    "name": "Oracle-TD3",
-    "type": "TD3",
+    "name": "Oracle-A3C",
+    "type": "A3C",
     "allocator":{
         "type": "OracleAllocator",
         "kwargs":{
         }
     },
     "winrate":{
-        "type": "DefaultBidder",
+        "type": "OracleBidder",
         "kwargs":{
-            "lr": 1e-3,
-            "batch_size": 256,
-            "num_grad_steps": 10
         }
     },
     "hidden_dim": 16,
     "lr": 1e-3,
     "batch_size": 256,
     "num_grad_steps": 10,
-    "tau": 0.1,
-    "simulation_steps": 10,
+    "simulation_steps": 0,
     "exploration_strategy": "Eps-Greedy",
     "eps_init": 1.0,
     "eps_min": 0.01,
     "eps_decay": 0.9999,
-    "output_dir": "results/Oracle_TD3"
+    "output_dir": "results/Oracle_AC"
 }

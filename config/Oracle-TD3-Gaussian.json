@@ -18,11 +18,11 @@
     "lr": 1e-3,
     "batch_size": 256,
     "num_grad_steps": 10,
-    "tau": 0.05,
-    "simulation_steps": 100,
+    "tau": 0.1,
+    "simulation_steps": 10,
     "exploration_strategy": "Gaussian Noise",
     "noise_init": 1.0,
     "noise_min": 0.01,
-    "noise_decay": 0.9995,
+    "noise_decay": 0.9999,
     "output_dir": "results/Oracle_TD3"
 }

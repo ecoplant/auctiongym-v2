@@ -22,7 +22,7 @@ class OracleAllocator(Allocator):
         super().__init__(rng, item_features)
         self.context_dim = context_dim
         self.mode = 'Epsilon-greedy'
-        self.eps = 0.1
+        self.eps = 0.0
 
     def set_CTR_model(self, M):
         self.M = M
