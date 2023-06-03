@@ -1,14 +1,17 @@
 {
     "name": "Oracle-TD3",
-    "type": "TD3S",
+    "type": "TD3Q",
     "allocator":{
         "type": "OracleAllocator",
         "kwargs":{
         }
     },
     "winrate":{
-        "type": "OracleBidder",
+        "type": "DefaultBidder",
         "kwargs":{
+            "lr": 1e-3,
+            "batch_size": 256,
+            "num_grad_steps": 10
         }
     },
     "hidden_dim": 16,
@@ -16,7 +19,7 @@
     "batch_size": 256,
     "num_grad_steps": 10,
     "tau": 0.05,
-    "simulation_steps": 50,
+    "simulation_steps": 10,
     "exploration_strategy": "Gaussian Noise",
     "noise_init": 1.0,
     "noise_min": 0.01,

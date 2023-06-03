@@ -95,7 +95,10 @@ def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer
         return QBid(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='TD3':
         return TD3(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-
+    elif agent_config['type']=='TD3Q':
+        return TD3Q(rng, name, item_features, item_values, context_dim, buffer, agent_config)
+    elif agent_config['type']=='TD3S':
+        return TD3S(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 if __name__ == '__main__':
     # Parse commandline arguments
@@ -242,19 +245,23 @@ if __name__ == '__main__':
             budget_left[run,i] = s[-2]
     
     states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
-    temp = np.concatenate([np.tile(np.linspace(1,budget,50),(20,1)).reshape(-1,1),
-                           np.tile(np.linspace(1, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
+    temp = np.concatenate([np.tile(np.linspace(0,budget,50),(20,1)).reshape(-1,1),
+                           np.tile(np.linspace(0, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
     contexts = states[:, :context_dim]
     q = np.zeros((1000,3))
-    q[:,:-1] = states[:,-2:]
+    q[:,:-1] = temp
     biddings = np.random.uniform(0,1,size=1000)
-    x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
-    q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+    if isinstance(agent, TD3S):
+        x = torch.Tensor(np.concatenate([contexts, temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
+        q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+    else:
+        x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
+        q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
 
     df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
     for i in range(q.shape[0]):
-        df_rows['Step Left'].append(q[i,0])
-        df_rows['Budget Left'].append(q[i,1])
+        df_rows['Budget Left'].append(q[i,0])
+        df_rows['Step Left'].append(q[i,1])
         df_rows['Q'].append(q[i,2])
     q_df = pd.DataFrame(df_rows)
 

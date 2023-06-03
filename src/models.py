@@ -320,16 +320,24 @@ class QNet(nn.Module):
         return self.fc3(x)
 
 class Actor(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
+    def __init__(self, input_dim, hidden_dim, context_dim):
         super().__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.context_dim = context_dim
+        self.fc1 = nn.Linear(input_dim, hidden_dim-3)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim-3)
         self.fc3 = nn.Linear(hidden_dim, 1)
     
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return torch.sigmoid(self.fc3(x))
+        if x.dim()>1:
+            r = x[:,self.context_dim:]
+            x = F.relu(self.fc1(x))
+            x = F.relu(self.fc2(torch.concat([x, r], dim=1)))
+            return torch.sigmoid(self.fc3(torch.concat([x, r], dim=1)))
+        else:
+            r = x[self.context_dim:]
+            x = F.relu(self.fc1(x))
+            x = F.relu(self.fc2(torch.concat([x, r])))
+            return torch.sigmoid(self.fc3(torch.concat([x, r])))
     
 class NoisyActor(nn.Module):
     def __init__(self, input_dim, hidden_dim, var_scale):
@@ -373,35 +381,6 @@ class Critic(nn.Module):
         q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
         return self.fc3(torch.concat([q1, r], dim=1))
 
-class DuelingCritic(nn.Module):
-    def __init__(self, input_dim, hidden_dim, context_dim):
-        super().__init__()
-        self.context_dim = context_dim
-        self.fc1 = nn.Linear(input_dim, hidden_dim-3)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim-3)
-        self.fc3 = nn.Linear(hidden_dim, 1)
-
-        self.fc4 = nn.Linear(input_dim, hidden_dim-3)
-        self.fc5 = nn.Linear(hidden_dim, hidden_dim-3)
-        self.fc6 = nn.Linear(hidden_dim, 1)
-    
-    def forward(self, x):
-        r = x[:,self.context_dim:]
-        q1 = F.relu(self.fc1(x))
-        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
-        q1 = F.relu(self.fc3(torch.concat([q1, r], dim=1)))
-
-        q2 = F.relu(self.fc4(x))
-        q2 = F.relu(self.fc5(torch.concat([q2, r], dim=1)))
-        q2 = F.relu(self.fc6(torch.concat([q2, r], dim=1)))
-
-        return q1, q2
-    
-    def Q1(self, x):
-        r = x[:,self.context_dim:]
-        q1 = F.relu(self.fc1(x))
-        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
-        return F.relu(self.fc3(torch.concat([q1, r], dim=1)))
 
 class NoisyCritic(nn.Module):
     def __init__(self, input_dim, hidden_dim, var_scale):
