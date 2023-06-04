@@ -1,0 +1,17 @@
+{
+    "name": "Oracle-TD3",
+    "type": "TD3",
+    "allocator":{
+        "type": "OracleAllocator",
+        "kwargs":{
+        }
+    },
+    "noise": 0.02,
+    "hidden_dim": 32,
+    "lr": 1e-3,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "tau": 0.01,
+    "exploration_length": 10000,
+    "output_dir": "results/Oracle_TD3"
+}

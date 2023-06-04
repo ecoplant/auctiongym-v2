@@ -1,0 +1,25 @@
+{
+    "name": "NeuralAllocator-QBid",
+    "type": "QBid",
+    "allocator":{
+        "type": "NeuralAllocator",
+        "kwargs":{
+            "lr": 1e-3,
+            "batch_size": 256,
+            "weight_decay": 1e-6,
+            "latent_dim": 32,
+            "num_epochs": 10,
+            "mode": "\"Epsilon-greedy\"",
+            "eps_min": 0.01,
+            "eps_max": 1.0
+        }
+    },
+    "fc1_size": 32,
+    "fc2_size": 32,
+    "lr": 1e-3,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "tau": 0.05,
+    "exploration_length": 5000,
+    "output_dir": "results/NeuralEps_QBid"
+}

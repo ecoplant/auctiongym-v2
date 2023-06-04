@@ -1,0 +1,16 @@
+{
+    "name": "Oracle-Oracle",
+    "type": "Bandit",
+    "allocator":{
+        "type": "OracleAllocator",
+        "kwargs":{
+        }
+    },
+    "bidder":{
+        "type": "OracleBidder",
+        "kwargs":{
+        }
+    },
+    "exploration_length": 0,
+    "output_dir": "results/OrcleBandit"
+}

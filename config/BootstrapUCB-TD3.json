@@ -1,0 +1,25 @@
+{
+    "name": "NeuralAllocator-TD3",
+    "type": "TD3",
+    "allocator":{
+        "type": "BootstrapAllocator",
+        "kwargs":{
+            "lr": 1e-3,
+            "batch_size": 256,
+            "weight_decay": 1e-6,
+            "latent_dim": 32,
+            "num_nets": 10,
+            "num_epochs": 10,
+            "mode": "\"UCB\"",
+            "c": 1.0
+        }
+    },
+    "noise": 0.02,
+    "hidden_dim": 32,
+    "lr": 1e-3,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "tau": 0.01,
+    "exploration_length": 1000,
+    "output_dir": "results/NeuralEps_TD3"
+}

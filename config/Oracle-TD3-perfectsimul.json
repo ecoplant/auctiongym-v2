@@ -1,0 +1,25 @@
+{
+    "name": "Oracle-TD3",
+    "type": "TD3",
+    "allocator":{
+        "type": "OracleAllocator",
+        "kwargs":{
+        }
+    },
+    "winrate":{
+        "type": "OracleBidder",
+        "kwargs":{
+        }
+    },
+    "hidden_dim": 16,
+    "lr": 1e-3,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "tau": 0.01,
+    "simulation_steps": 10,
+    "exploration_strategy": "Eps-Greedy",
+    "eps_init": 1.0,
+    "eps_min": 0.01,
+    "eps_decay": 0.999,
+    "output_dir": "results/Oracle_TD3"
+}

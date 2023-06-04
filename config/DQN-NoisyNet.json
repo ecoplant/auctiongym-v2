@@ -1,0 +1,12 @@
+{
+    "name": "DQN",
+    "type": "DQN",
+    "hidden_dim": 16,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "lr": 1e-3,
+    "tau": 0.01,
+    "exploration_strategy": "Noisy Network",
+    "var_scale": 1.0,
+    "output_dir": "results/DQN-NoisyNet"
+}
