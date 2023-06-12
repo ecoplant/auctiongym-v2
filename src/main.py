@@ -255,17 +255,17 @@ if __name__ == '__main__':
                 CTR_error[run,i] = np.mean((estim_ctr-true_ctr)**2)
             except:
                 CTR_error[run,i] = 0.0
-            # try:
-            b_grid = np.linspace(0.1, 1, 10).reshape(-1,1)
-            x = torch.Tensor(np.concatenate([np.tile(context, (10,1)), b_grid], axis=1)).to(agent.device)
-            estim_winrate = agent.winrate.winrate_model(x).numpy(force=True).reshape(-1)
-            true_winrate = []
-            for j in range(10):
-                true_winrate.append(auction.winrate_model(context, b_grid[j]))
-            true_winrate = np.array(true_winrate)
-            winrate_error[run,i] = np.mean((estim_winrate-true_winrate)**2)
-            # except:
-            #     winrate_error[run,i] = 0.0
+            try:
+                b_grid = np.linspace(0.1, 1, 10).reshape(-1,1)
+                x = torch.Tensor(np.concatenate([np.tile(context, (10,1)), b_grid], axis=1)).to(agent.device)
+                estim_winrate = agent.winrate.winrate_model(x).numpy(force=True).reshape(-1)
+                true_winrate = []
+                for j in range(10):
+                    true_winrate.append(auction.winrate_model(context, b_grid[j]))
+                true_winrate = np.array(true_winrate)
+                winrate_error[run,i] = np.mean((estim_winrate-true_winrate)**2)
+            except:
+                winrate_error[run,i] = 0.0
             
     
     states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
