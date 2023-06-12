@@ -1,0 +1,14 @@
+{
+    "name": "DQN",
+    "type": "DQN",
+    "hidden_dim": 64,
+    "batch_size": 256,
+    "num_grad_steps": 60,
+    "lr": 1e-4,
+    "tau": 0.01,
+    "exploration_strategy": "Noise Injection",
+    "noise_init": 1.0,
+    "noise_min": 0.001,
+    "noise_decay": 0.999,
+    "output_dir": "./results/DQN-NoiseInjection"
+}

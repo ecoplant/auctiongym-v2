@@ -10,5 +10,9 @@
     "eps_init": 1.0,
     "eps_min": 0.01,
     "eps_decay": 0.999,
-    "output_dir": "./results/DQN-EpsGreedy"
+    "output_dir": "./results/DQN-EpsGreedy",
+    "use_bid_factor": "True",
+    "bid_factor_init": 2,
+    "bid_factor_min": 1,
+    "bid_factor_decay": 0.999
 }

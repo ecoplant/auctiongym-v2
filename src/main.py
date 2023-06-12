@@ -106,7 +106,7 @@ if __name__ == '__main__':
 
     with open('config/training_config.json') as f:
         training_config = json.load(f)
-    
+
     with open(args.config) as f:
         agent_config = json.load(f)
 
@@ -175,7 +175,6 @@ if __name__ == '__main__':
             winrate_model = Winrate(winrate_mode, context_dim, winrate_param, CTR_model)
 
         buffer = Buffer()
-
         agent = instantiate_agent(rng, agent_config['name'], item_features, item_values, context_dim, buffer, agent_config)
         auction = Auction(rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist, horizon, budget)
         agent.auction = auction
@@ -240,16 +239,59 @@ if __name__ == '__main__':
             episode_length[run,i] = t - start
             uncertainty[run,i] = agent.get_uncertainty(t-start)
             budget_left[run,i] = s[-2]
+
+    reward = average(reward, record_interval)
+    optimal_selection = average(optimal_selection, record_interval)
+    prob_win = average(win_rate, record_interval)
+
+    cumulative_reward = np.cumsum(reward, axis=1)
+
+    if agent_config['type']=='DQN':
+        torch.save(agent.target_network.state_dict(), output_dir+'model.pt')
+
+    reward_df = numpy2df(reward, 'Reward')
+    reward_df.to_csv(output_dir + '/reward.csv', index=False)
+    plot_measure(reward_df, 'Reward', record_interval, output_dir)
+
+    cumulative_reward_df = numpy2df(cumulative_reward, 'Cumulative Reward')
+    plot_measure(cumulative_reward_df, 'Cumulative Reward', record_interval, output_dir)
+
+    optimal_selection_df = numpy2df(optimal_selection, 'Optimal Selection Rate')
+    optimal_selection_df.to_csv(output_dir + '/optimal_selection_rate.csv', index=False)
+    plot_measure(optimal_selection_df, 'Optimal Selection Rate', record_interval, output_dir)
+
+    prob_win_df = numpy2df(prob_win, 'Probability of Winning')
+    prob_win_df.to_csv(output_dir + '/prob_win.csv', index=False)
+    plot_measure(prob_win_df, 'Probability of Winning', record_interval, output_dir)
+
+    episode_length_df = numpy2df(episode_length, 'Episode Length')
+    episode_length_df.to_csv(output_dir + '/episode_length.csv', index=False)
+    plot_measure(episode_length_df, 'Episode Length', record_interval, output_dir)
+
+    uncertainty_df = numpy2df(uncertainty, 'Uncertainty')
+    uncertainty_df.to_csv(output_dir + '/uncertainty.csv', index=False)
+    plot_measure(uncertainty_df, 'Uncertainty', record_interval, output_dir)
+
+    budget_df = numpy2df(budget_left, 'Remaining Budget')
+    budget_df.to_csv(output_dir + '/budget.csv', index=False)
+    plot_measure(budget_df, 'Remaining Budget', record_interval, output_dir)
+
     
+    # Plotting Q-value related graph
     states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
     temp = np.concatenate([np.tile(np.linspace(1,budget,50),(20,1)).reshape(-1,1),
                            np.tile(np.linspace(1, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
     contexts = states[:, :context_dim]
     q = np.zeros((1000,3))
-    q[:,:-1] = states[:,-2:]
+    q[:,0] = states[:,-1]
+    q[:,1] = states[:,-2]
     biddings = np.random.uniform(0,1,size=1000)
     x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
-    q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+    
+    if agent_config['type'] == 'DQN':
+        q[:,-1] = agent.local_network.Q1(x).numpy(force=True).reshape(-1)
+    else:
+        q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
 
     df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
     for i in range(q.shape[0]):
@@ -285,36 +327,3 @@ if __name__ == '__main__':
     plt.title('Encountered Budget', fontsize = FONTSIZE + 2)
     sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
     plt.savefig(f"{output_dir}/encountered_budgets.png", bbox_inches='tight')
-
-    reward = average(reward, record_interval)
-    optimal_selection = average(optimal_selection, record_interval)
-    prob_win = average(win_rate, record_interval)
-
-    cumulative_reward = np.cumsum(reward, axis=1)
-
-    reward_df = numpy2df(reward, 'Reward')
-    reward_df.to_csv(output_dir + '/reward.csv', index=False)
-    plot_measure(reward_df, 'Reward', record_interval, output_dir)
-
-    cumulative_reward_df = numpy2df(cumulative_reward, 'Cumulative Reward')
-    plot_measure(cumulative_reward_df, 'Cumulative Reward', record_interval, output_dir)
-
-    optimal_selection_df = numpy2df(optimal_selection, 'Optimal Selection Rate')
-    optimal_selection_df.to_csv(output_dir + '/optimal_selection_rate.csv', index=False)
-    plot_measure(optimal_selection_df, 'Optimal Selection Rate', record_interval, output_dir)
-
-    prob_win_df = numpy2df(prob_win, 'Probability of Winning')
-    prob_win_df.to_csv(output_dir + '/prob_win.csv', index=False)
-    plot_measure(prob_win_df, 'Probability of Winning', record_interval, output_dir)
-
-    episode_length_df = numpy2df(episode_length, 'Episode Length')
-    episode_length_df.to_csv(output_dir + '/episode_length.csv', index=False)
-    plot_measure(episode_length_df, 'Episode Length', record_interval, output_dir)
-
-    uncertainty_df = numpy2df(uncertainty, 'Uncertainty')
-    uncertainty_df.to_csv(output_dir + '/uncertainty.csv', index=False)
-    plot_measure(uncertainty_df, 'Uncertainty', record_interval, output_dir)
-
-    budget_df = numpy2df(budget_left, 'Remaining Budget')
-    budget_df.to_csv(output_dir + '/budget.csv', index=False)
-    plot_measure(budget_df, 'Remaining Budget', record_interval, output_dir)

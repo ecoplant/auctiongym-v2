@@ -319,6 +319,33 @@ class QNet(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
 
+class DoubleDQN(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+
+        self.fc4 = nn.Linear(input_dim, hidden_dim)
+        self.fc5 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc6 = nn.Linear(hidden_dim, 1)
+    
+    def forward(self, x):
+        q1 = F.relu(self.fc1(x))
+        q1 = F.relu(self.fc2(q1))
+        q1 = self.fc3(q1)
+
+        q2 = F.relu(self.fc4(x))
+        q2 = F.relu(self.fc5(q2))
+        q2 = self.fc6(q2)
+
+        return q1, q2
+    
+    def Q1(self, x):
+        q1 = F.relu(self.fc1(x))
+        q1 = F.relu(self.fc2(q1))
+        return self.fc3(q1)
+
 class Actor(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
@@ -402,7 +429,7 @@ class DuelingCritic(nn.Module):
         q1 = F.relu(self.fc1(x))
         q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1)))
         return F.relu(self.fc3(torch.concat([q1, r], dim=1)))
-
+    
 class NoisyCritic(nn.Module):
     def __init__(self, input_dim, hidden_dim, var_scale):
         super().__init__()

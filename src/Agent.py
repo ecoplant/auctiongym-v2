@@ -118,14 +118,15 @@ class DQN(Agent):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.exploration_strategy = config['exploration_strategy']
+        self.use_bid_factor = False
         if self.exploration_strategy=='Eps-Greedy':
-            self.local_network = Critic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.local_network = DoubleDQN(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
             self.target_network = copy.deepcopy(self.local_network)
             self.eps_init = self.eps = config['eps_init']
             self.eps_min = config['eps_min']
             self.eps_decay = config['eps_decay']
         elif self.exploration_strategy=='Noise Injection':
-            self.local_network = Critic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
+            self.local_network = DoubleDQN(context_dim + 2 + self.feature_dim + 1, config['hidden_dim']).to(self.device)
             self.target_network = copy.deepcopy(self.local_network)
             self.noise_init = self.noise = config['noise_init']
             self.noise_min = config['noise_min']
@@ -133,6 +134,12 @@ class DQN(Agent):
         elif self.exploration_strategy=='Noisy Network':
             self.local_network = NoisyCritic(context_dim + 2 + self.feature_dim + 1, config['hidden_dim'], config['var_scale']).to(self.device)
             self.target_network = copy.deepcopy(self.local_network)
+        
+        if 'use_bid_factor' in config.keys() and config['use_bid_factor'] == True:
+            self.use_bid_factor = True
+            self.bid_factor_init = self.bid_factor= config['bid_factor_init']
+            self.bid_factor_min = config['bid_factor_min']
+            self.bid_factor_decay = config['bid_factor_decay']
 
         self.optimizer = optim.Adam(self.local_network.parameters(), lr = config['lr'])
         self.batch_size = config['batch_size']
@@ -157,16 +164,29 @@ class DQN(Agent):
                 self.eps = np.maximum(self.eps*self.eps_decay, self.eps_min)
 
             elif self.exploration_strategy=='Noise Injection':
-                raise NotImplementedError
-                param_dict = {}
-                for key, param in self.local_network.parameters().items():
-                    param_dict[key] = param.copy()
-                    param.data.copy_(param + torch.randn_like(param)*self.noise)
-                index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                #raise NotImplementedError
+                # param_dict = {}
+                # for key, param in self.local_network.parameters().items():
+                #     param_dict[key] = param.copy()
+                #     param.data.copy_(param + torch.randn_like(param)*self.noise)
+                # index = np.argmax(self.local_network.Q1(x).numpy(force=True))
+                # item = index % self.num_items
+                # bid = b_grid[int(index / self.num_items)]
+                # for key, param in self.local_network.parameters().items():
+                #     param.data.copy_(param_dict[key])
+                # self.noise = np.maximum(self.noise*self.noise_decay, self.noise_min)
+                self.clone_network = copy.deepcopy(self.local_network)
+
+                state_dict = self.clone_network.state_dict()
+
+                for name, param in state_dict.items():
+                    transformed_param = param + param*torch.randn_like(param)*self.noise
+                    param.copy_(transformed_param)
+                
+                index = np.argmax(self.clone_network.Q1(x).numpy(force=True))
                 item = index % self.num_items
                 bid = b_grid[int(index / self.num_items)]
-                for key, param in self.local_network.parameters().items():
-                    param.data.copy_(param_dict[key])
+                
                 self.noise = np.maximum(self.noise*self.noise_decay, self.noise_min)
 
             elif self.exploration_strategy=='Noisy Network':
@@ -174,6 +194,10 @@ class DQN(Agent):
                 item = index % self.num_items
                 bid = b_grid[int(index / self.num_items)]
         
+        if self.use_bid_factor is True:
+            bid = bid*self.bid_factor
+            self.bid_factor = np.max(self.bid_factor * self.bid_factor_decay, self.bid_factor_min)
+
         return item, np.clip(bid, 0.0, state[-2])
 
     def update(self, t):

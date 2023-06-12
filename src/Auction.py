@@ -59,6 +59,14 @@ class Auction(gym.Env):
         return np.concatenate([self.context, np.array([self.remaining_budget]), np.array([self.remaining_steps])]), {}
 
     def step(self, action):
+        """
+        Bid and get reward.
+        state: [context, remaining budget, remaining steps] (context_dim + 2, ) size numpy array
+        action: {item, bidding}
+
+        Calculate winrate and CTR based on winrate_model and CTR_model.
+        
+        """
         item = action['item']
         bid = action['bid']
         winrate = self.winrate_model(self.context, bid)
