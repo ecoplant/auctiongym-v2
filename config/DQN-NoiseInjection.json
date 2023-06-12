@@ -1,6 +1,6 @@
 {
-    "name": "Oracle-TD3",
-    "type": "TD3S",
+    "name": "DQN",
+    "type": "DQN",
     "allocator":{
         "type": "OracleAllocator",
         "kwargs":{
@@ -15,14 +15,15 @@
         }
     },
     "hidden_dim": 16,
-    "lr": 1e-4,
     "batch_size": 256,
     "num_grad_steps": 10,
-    "tau": 0.2,
     "simulation_steps": 0,
-    "exploration_strategy": "Eps-Greedy",
-    "eps_init": 1.0,
-    "eps_min": 0.01,
-    "eps_decay": 0.9999,
-    "output_dir": "results/Oracle_TD3"
+    "lr": 1e-3,
+    "tau": 0.01,
+    "exploration_strategy": "Noise Injection",
+    "episodic_exploration": false,
+    "noise_init": 1.0,
+    "noise_min": 0.0,
+    "noise_decay": 0.999,
+    "output_dir": "results/DQN-NoiseInjection"
 }

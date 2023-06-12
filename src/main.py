@@ -155,7 +155,10 @@ if __name__ == '__main__':
     episode_length = np.zeros((num_runs, num_episodes))
     uncertainty = np.zeros((num_runs, num_episodes))
     budget_left = np.zeros((num_runs, num_episodes))
+    CTR_error = np.zeros((num_runs, num_episodes))
+    winrate_error = np.zeros((num_runs, num_episodes))
     budgets = []
+    bids = []
 
     # estimated_CTR = np.zeros((num_runs, num_episodes))
 
@@ -233,6 +236,7 @@ if __name__ == '__main__':
                 episode_optimal_selection += float(info['optimal_selection'])
                 s = s_
                 budgets.append(s[-2])
+                bids.append(bidding)
 
                 if t%update_interval==0:
                     agent.update(int(t/update_interval))
@@ -243,6 +247,26 @@ if __name__ == '__main__':
             episode_length[run,i] = t - start
             uncertainty[run,i] = agent.get_uncertainty(t-start)
             budget_left[run,i] = s[-2]
+
+            context = auction.generate_context()
+            try:
+                estim_ctr = agent.allocator.estimate_CTR(context)
+                true_ctr = auction.CTR_model(context)
+                CTR_error[run,i] = np.mean((estim_ctr-true_ctr)**2)
+            except:
+                CTR_error[run,i] = 0.0
+            # try:
+            b_grid = np.linspace(0.1, 1, 10).reshape(-1,1)
+            x = torch.Tensor(np.concatenate([np.tile(context, (10,1)), b_grid], axis=1)).to(agent.device)
+            estim_winrate = agent.winrate.winrate_model(x).numpy(force=True).reshape(-1)
+            true_winrate = []
+            for j in range(10):
+                true_winrate.append(auction.winrate_model(context, b_grid[j]))
+            true_winrate = np.array(true_winrate)
+            winrate_error[run,i] = np.mean((estim_winrate-true_winrate)**2)
+            # except:
+            #     winrate_error[run,i] = 0.0
+            
     
     states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
     temp = np.concatenate([np.tile(np.linspace(0,budget,50),(20,1)).reshape(-1,1),
@@ -254,6 +278,9 @@ if __name__ == '__main__':
     if isinstance(agent, TD3S):
         x = torch.Tensor(np.concatenate([contexts, temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
         q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+    elif isinstance(agent, DQN):
+        x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
+        q[:,-1] = agent.local_network.Q1(x).numpy(force=True).reshape(-1)
     else:
         x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
         q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
@@ -293,6 +320,36 @@ if __name__ == '__main__':
     sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
     plt.savefig(f"{output_dir}/encountered_budgets.png", bbox_inches='tight')
 
+    budget_array = np.sort(np.array(budgets[-1000:]))
+    df_rows = {'Encountered Budget': []}
+    for i in range(budget_array.shape[0]):
+        df_rows['Encountered Budget'].append(budget_array[i])
+    budgets_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Encountered Budget (last 1000steps)', fontsize = FONTSIZE + 2)
+    sns.histplot(data=budgets_df, x="Encountered Budget", bins=100)
+    plt.savefig(f"{output_dir}/encountered_budgets_last.png", bbox_inches='tight')
+
+    bidding_array = np.sort(np.array(bids))
+    df_rows = {'bidding': []}
+    for i in range(bidding_array.shape[0]):
+        df_rows['bidding'].append(bidding_array[i])
+    bidding_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Bidding', fontsize = FONTSIZE + 2)
+    sns.histplot(data=bidding_df, x="bidding", bins=10)
+    plt.savefig(f"{output_dir}/biddings.png", bbox_inches='tight')
+
+    bidding_array = np.sort(np.array(bids[-1000:]))
+    df_rows = {'bidding': []}
+    for i in range(bidding_array.shape[0]):
+        df_rows['bidding'].append(bidding_array[i])
+    bidding_df = pd.DataFrame(df_rows)
+    fig, axes = plt.subplots(figsize=FIGSIZE)
+    plt.title('Bidding (last 1000steps)', fontsize = FONTSIZE + 2)
+    sns.histplot(data=bidding_df, x="bidding", bins=10)
+    plt.savefig(f"{output_dir}/biddings_last.png", bbox_inches='tight')
+
     reward = average(reward, record_interval)
     optimal_selection = average(optimal_selection, record_interval)
     prob_win = average(win_rate, record_interval)
@@ -316,12 +373,18 @@ if __name__ == '__main__':
 
     episode_length_df = numpy2df(episode_length, 'Episode Length')
     episode_length_df.to_csv(output_dir + '/episode_length.csv', index=False)
-    plot_measure(episode_length_df, 'Episode Length', record_interval, output_dir)
+    plot_measure(episode_length_df, 'Episode Length', 1, output_dir)
 
     uncertainty_df = numpy2df(uncertainty, 'Uncertainty')
     uncertainty_df.to_csv(output_dir + '/uncertainty.csv', index=False)
-    plot_measure(uncertainty_df, 'Uncertainty', record_interval, output_dir)
+    plot_measure(uncertainty_df, 'Uncertainty', 1, output_dir)
 
     budget_df = numpy2df(budget_left, 'Remaining Budget')
     budget_df.to_csv(output_dir + '/budget.csv', index=False)
-    plot_measure(budget_df, 'Remaining Budget', record_interval, output_dir)
+    plot_measure(budget_df, 'Remaining Budget', 1, output_dir)
+
+    CTR_error_df = numpy2df(CTR_error, 'CTR Error')
+    plot_measure(CTR_error_df, 'CTR Error', 1, output_dir)
+
+    winrate_error_df = numpy2df(winrate_error, 'Win Rate Error')
+    plot_measure(winrate_error_df, 'Win Rate Error', 1, output_dir)

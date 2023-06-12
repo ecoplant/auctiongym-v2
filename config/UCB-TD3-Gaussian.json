@@ -1,9 +1,12 @@
 {
-    "name": "Oracle-TD3",
+    "name": "UCB-TD3",
     "type": "TD3S",
     "allocator":{
-        "type": "OracleAllocator",
+        "type": "LogisticAllocator",
         "kwargs":{
+            "lr": 1e-3,
+            "mode": "\"UCB\"",
+            "c": 1.0
         }
     },
     "winrate":{
@@ -19,7 +22,7 @@
     "batch_size": 256,
     "num_grad_steps": 10,
     "tau": 0.01,
-    "simulation_steps": 0,
+    "simulation_steps": 10,
     "exploration_strategy": "Gaussian Noise",
     "episodic_exploration": false,
     "noise_init": 1.0,
@@ -27,5 +30,5 @@
     "noise_decay": 0.999,
     "mean_noise_init": 0.5,
     "mean_noise_decay": 0.999,
-    "output_dir": "results/Oracle_TD3_Gaussian"
+    "output_dir": "results/UCB_TD3_Gaussian"
 }

@@ -29,12 +29,15 @@ class BayesianLinear(nn.Module):
         nn.init.uniform_(self.bias_mu, -np.sqrt(3/self.weight_mu.size(1)), np.sqrt(3/self.weight_mu.size(1)))
         nn.init.uniform_(self.bias_rho, -0.02, 0.02)
         
-    def forward(self, input, sample=True):
-        if self.training or sample:
+    def forward(self, input, sample=False, pre_sampled=False):
+        if sample:
             weight_sigma = torch.log1p(torch.exp(self.weight_rho))
             bias_sigma = torch.log1p(torch.exp(self.bias_rho))
-            weight = self.weight_mu + self.scale * weight_sigma * torch.randn_like(self.weight_mu)
-            bias = self.bias_mu + self.scale * bias_sigma * torch.randn_like(self.bias_mu)
+            weight = self.weight_mu + weight_sigma * torch.randn_like(self.weight_mu)
+            bias = self.bias_mu + bias_sigma * torch.randn_like(self.bias_mu)
+        elif pre_sampled:
+            weight = self.weight_
+            bias = self.bias_
         else:
             weight = self.weight_mu
             bias = self.bias_mu
@@ -46,6 +49,12 @@ class BayesianLinear(nn.Module):
             weight_sigma = torch.log1p(torch.exp(self.weight_rho)).numpy(force=True)
             bias_sigma = torch.log1p(torch.exp(self.bias_rho)).numpy(force=True)
         return np.concatenate([weight_sigma.reshape(-1), bias_sigma.reshape(-1)])
+    
+    def sample_weight(self):
+        weight_sigma = torch.log1p(torch.exp(self.weight_rho))
+        bias_sigma = torch.log1p(torch.exp(self.bias_rho))
+        self.weight_ = (self.weight_mu + self.scale * weight_sigma * torch.randn_like(self.weight_mu)).detach().clone()
+        self.bias_ = (self.bias_mu + self.scale * bias_sigma * torch.randn_like(self.bias_mu)).detach().clone()
 
 class Logistic:
     def __init__(self, param):
@@ -169,7 +178,10 @@ class LogisticRegression(nn.Module):
         y = torch.Tensor(outcomes).to(self.device)
         N = X.size(0)
 
-        epochs = 10
+        if N<1000:
+            epochs = 10
+        else:
+            epochs = 1
         for epoch in range(int(epochs)):
             self.optimizer.zero_grad()
             loss = self.loss(X, A, y)
@@ -340,16 +352,33 @@ class Actor(nn.Module):
             return torch.sigmoid(self.fc3(torch.concat([x, r])))
     
 class NoisyActor(nn.Module):
-    def __init__(self, input_dim, hidden_dim, var_scale):
+    def __init__(self, input_dim, hidden_dim, context_dim, var_scale):
         super().__init__()
-        self.fc1 = BayesianLinear(input_dim, hidden_dim, var_scale)
-        self.fc2 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
+        self.context_dim = context_dim
+        self.fc1 = BayesianLinear(input_dim, hidden_dim-3, var_scale)
+        self.fc2 = BayesianLinear(hidden_dim, hidden_dim-3, var_scale)
         self.fc3 = BayesianLinear(hidden_dim, 1, var_scale)
     
-    def forward(self, x, sample=True):
-        x = F.relu(self.fc1(x, sample))
-        x = F.relu(self.fc2(x, sample))
-        return torch.sigmoid(self.fc3(x, sample))
+    def forward(self, x, sample=False, pre_sampled=False):
+        if x.dim()>1:
+            r = x[:,self.context_dim:]
+            x = F.relu(self.fc1(x, sample, pre_sampled))
+            x = F.relu(self.fc2(torch.concat([x, r], dim=1), sample, pre_sampled))
+            return torch.sigmoid(self.fc3(torch.concat([x, r], dim=1), sample, pre_sampled))
+        else:
+            r = x[self.context_dim:]
+            x = F.relu(self.fc1(x, sample, pre_sampled))
+            x = F.relu(self.fc2(torch.concat([x, r]), sample, pre_sampled))
+            return torch.sigmoid(self.fc3(torch.concat([x, r]), sample, pre_sampled))
+    
+    def get_uncertainty(self):
+        u = np.concatenate([self.fc1.get_uncertainty(), self.fc2.get_uncertainty(), self.fc3.get_uncertainty()])
+        return np.mean(u)
+
+    def sample_net(self):
+        self.fc1.sample_weight()
+        self.fc2.sample_weight()
+        self.fc3.sample_weight()
 
 class Critic(nn.Module):
     def __init__(self, input_dim, hidden_dim, context_dim):
@@ -383,32 +412,43 @@ class Critic(nn.Module):
 
 
 class NoisyCritic(nn.Module):
-    def __init__(self, input_dim, hidden_dim, var_scale):
+    def __init__(self, input_dim, hidden_dim, context_dim, var_scale):
         super().__init__()
-        self.fc1 = BayesianLinear(input_dim, hidden_dim, var_scale)
-        self.fc2 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
+        self.context_dim = context_dim
+        self.fc1 = BayesianLinear(input_dim, hidden_dim-3, var_scale)
+        self.fc2 = BayesianLinear(hidden_dim, hidden_dim-3, var_scale)
         self.fc3 = BayesianLinear(hidden_dim, 1, var_scale)
 
-        self.fc4 = BayesianLinear(input_dim, hidden_dim, var_scale)
-        self.fc5 = BayesianLinear(hidden_dim, hidden_dim, var_scale)
+        self.fc4 = BayesianLinear(input_dim, hidden_dim-3, var_scale)
+        self.fc5 = BayesianLinear(hidden_dim, hidden_dim-3, var_scale)
         self.fc6 = BayesianLinear(hidden_dim, 1, var_scale)
     
     def forward(self, x, sample=True):
+        r = x[:,self.context_dim:]
         q1 = F.relu(self.fc1(x, sample))
-        q1 = F.relu(self.fc2(q1, sample))
-        q1 = self.fc3(q1, sample)
+        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1), sample))
+        q1 = self.fc3(torch.concat([q1, r], dim=1), sample)
 
         q2 = F.relu(self.fc4(x, sample))
-        q2 = F.relu(self.fc5(q2, sample))
-        q2 = self.fc6(q2, sample)
+        q2 = F.relu(self.fc5(torch.concat([q2, r], dim=1), sample))
+        q2 = self.fc6(torch.concat([q2, r], dim=1), sample)
 
         return q1, q2
     
-    def Q1(self, x, sample=True):
-        q1 = F.relu(self.fc1(x, sample))
-        q1 = F.relu(self.fc2(q1, sample))
-        return self.fc3(q1, sample)
+    def Q1(self, x, sample=False, pre_sampled=False):
+        r = x[:,self.context_dim:]
+        q1 = F.relu(self.fc1(x, sample, pre_sampled))
+        q1 = F.relu(self.fc2(torch.concat([q1, r], dim=1), sample, pre_sampled))
+        return self.fc3(torch.concat([q1, r], dim=1), sample, pre_sampled)
     
     def get_uncertainty(self):
         u = np.concatenate([self.fc1.get_uncertainty(), self.fc2.get_uncertainty(), self.fc3.get_uncertainty()])
         return np.mean(u)
+    
+    def sample_net(self):
+        self.fc1.sample_weight()
+        self.fc2.sample_weight()
+        self.fc3.sample_weight()
+        self.fc4.sample_weight()
+        self.fc5.sample_weight()
+        self.fc6.sample_weight()
