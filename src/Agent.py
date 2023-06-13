@@ -279,7 +279,7 @@ class DQN(Agent):
                     b_grid = np.transpose(np.tile(b_grid, (self.num_items, 1))).reshape(-1, 1)
                     x = torch.Tensor(np.concatenate([np.tile(next_states[:,:self.context_dim], (1, n_values_search * self.num_items)).reshape(-1, self.context_dim),\
                                                 np.tile(item_grid, (self.batch_size,1)),
-                                                np.tile(next_states[:,self.context_dim:], (1, n_values_search * self.num_items)).reshape(-1, self.context_dim), \
+                                                np.tile(next_states[:,self.context_dim:], (1, n_values_search * self.num_items)).reshape(-1, 2), \
                                                 np.tile(b_grid, (self.batch_size,1))], axis=1)).to(self.device)
                     if self.exploration_strategy=='Noisy Network':
                         next_q1, next_q2  = self.target_network(x, sample=False)
