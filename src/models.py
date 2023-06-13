@@ -330,6 +330,6 @@ class Net(nn.Module):
     def act(self, x):
         self.eval()
         logits = self.pi(x)
-        prob = F.softmax(logits).data
+        prob = F.softmax(logits, -1).data
         m = self.dist(prob)
         return m.sample().item()

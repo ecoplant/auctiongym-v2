@@ -122,6 +122,7 @@ class A3C(Agent):
         self.dist = torch.distributions.Categorical
 
         self.exploration_strategy = config['exploration_strategy']
+        self.lambda_decay = config['lambda']
         if self.exploration_strategy=='Eps-Greedy':
             self.eps_init = self.eps = config['eps_init']
             self.eps_min = config['eps_min']
@@ -186,30 +187,32 @@ class A3C(Agent):
         # update CVR estimator and win rate estimator
         states, item_inds, biddings, rewards, next_states, dones, wins, outcomes = self.buffer.numpy()
         contexts = states[:, :self.context_dim]
-        self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins], t)
-        self.winrate.update(contexts, biddings, wins)
-
-        if len(self.buffer.states)<self.batch_size:
-            return
+        #self.allocator.update(contexts[wins], item_inds[wins], outcomes[wins], t)
+        #self.winrate.update(contexts, biddings, wins)
         
         # update actor and critic using real data
-        for i in range(self.num_grad_steps):
-            states, item_inds, biddings, rewards, next_states, dones = self.buffer.sample_recent(self.batch_size)
-            s = torch.Tensor(states).to(self.device)
-            s_ = torch.Tensor(next_states).to(self.device)
-            v = self.net.v(s).squeeze()
-            v_next = self.net.v(s_).squeeze()
-            v_target = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * v_next.detach()
+        s = torch.Tensor(states).to(self.device)
+        s_ = torch.Tensor(next_states).to(self.device)
+        v = self.net.v(s).squeeze()
+        v_next = self.net.v(s_).squeeze()
+        td_error = torch.Tensor(rewards).to(self.device) + torch.Tensor(1.0-dones).to(self.device) * v_next.detach() - v.detach()
+        generalized_advantage = torch.zeros_like(td_error).to(self.device)
+        episode_length = states.shape[0]
+        tmp = 0
+        for i in range(episode_length):
+            tmp = tmp * self.lambda_decay + td_error[episode_length-i-1].item()
+            generalized_advantage[episode_length-i-1] = tmp
+        generalized_advantage += v.detach() - v
 
-            critic_loss = (v_target-v)**2
-            logits = self.net.pi(s)
-            probs = F.softmax(logits, dim=1)
-            m = self.dist(probs)
-            biddings = np.clip(biddings, 0.1, 1.0)
-            action = torch.LongTensor(np.floor(biddings/0.1-1)).to(self.device)
-            actor_loss = -m.log_prob(action) * (v_target-v).detach()
+        critic_loss = generalized_advantage**2
+        logits = self.net.pi(s)
+        probs = F.softmax(logits, dim=1)
+        m = self.dist(probs)
+        biddings = np.clip(biddings, 0.1, 1.0)
+        action = torch.LongTensor(np.floor(biddings/0.1-1)).to(self.device)
+        actor_loss = -m.log_prob(action) * generalized_advantage.detach()
 
-            loss = (critic_loss + actor_loss).mean()
-            self.optim.zero_grad()
-            loss.backward()
-            self.optim.step()
+        loss = (critic_loss + actor_loss).mean()
+        self.optim.zero_grad()
+        loss.backward()
+        self.optim.step()

@@ -28,6 +28,16 @@ class Buffer:
         self.wins = []
         self.outcomes = []
 
+    def clear(self):
+        self.states = []
+        self.items = []
+        self.biddings = []
+        self.rewards = []
+        self.next_states = []
+        self.d = []
+        self.wins = []
+        self.outcomes = []
+
     def append(self, state, item, bidding, reward, next_state, done, win, outcome):
         self.states.append(state)
         self.items.append(item)
@@ -41,19 +51,6 @@ class Buffer:
     def numpy(self):
         return np.array(self.states), np.array(self.items), np.array(self.biddings), np.array(self.rewards),\
               np.array(self.next_states), np.array(self.d, dtype=bool), np.array(self.wins, dtype=bool), np.array(self.outcomes, dtype=bool)
-    
-    def sample(self, batch_size):
-        if batch_size > len(self.states):
-            self.numpy()
-        else:
-            inds = np.random.choice(len(self.states), batch_size, replace = False)
-            return np.array([self.states[idx] for idx in inds]), np.array([self.items[idx] for idx in inds]), np.array([self.biddings[idx] for idx in inds]), \
-                np.array([self.rewards[idx] for idx in inds]), np.array([self.next_states[idx] for idx in inds]), np.array([self.d[idx] for idx in inds], dtype=bool)
-    
-    def sample_recent(self, batch_size):
-        inds = np.arange(len(self.states)-batch_size, len(self.states))
-        return np.array([self.states[idx] for idx in inds]), np.array([self.items[idx] for idx in inds]), np.array([self.biddings[idx] for idx in inds]), \
-                np.array([self.rewards[idx] for idx in inds]), np.array([self.next_states[idx] for idx in inds]), np.array([self.d[idx] for idx in inds], dtype=bool)
 
 def draw_features(rng, num_runs, feature_dim):
     run2item_features = {}
@@ -118,7 +115,6 @@ if __name__ == '__main__':
     num_runs = training_config['num_runs']
     num_episodes  = training_config['num_episodes']
     record_interval = training_config['record_interval']
-    update_interval = training_config['update_interval']
     horizon = training_config['horizon']
     budget = training_config['budget']
 
@@ -187,6 +183,7 @@ if __name__ == '__main__':
             episode_reward = 0
             episode_win = 0
             episode_optimal_selection = 0
+            buffer.clear()
             while not (done or truncated):
                 item, bidding = agent.bid(s, t)
                 a = {'item' : item, 'bid' : np.array([bidding])}
@@ -200,8 +197,7 @@ if __name__ == '__main__':
                 budgets.append(s[-2])
                 biddings.append(bidding)
 
-                if t%update_interval==0:
-                    agent.update(int(t/update_interval))
+            agent.update(t)
 
             reward[run,i] = episode_reward
             win_rate[run,i] = episode_win / (t - start)
