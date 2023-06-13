@@ -224,7 +224,7 @@ if __name__ == '__main__':
             episode_reward = 0
             episode_win = 0
             episode_optimal_selection = 0
-            agent.set_exploration_param()
+            agent.set_exploration_param(i)
 
             while not (done or truncated):
                 
