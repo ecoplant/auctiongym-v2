@@ -224,6 +224,8 @@ if __name__ == '__main__':
             episode_reward = 0
             episode_win = 0
             episode_optimal_selection = 0
+            agent.set_exploration_param(i)
+
             while not (done or truncated):
                 
                 item, bidding = agent.bid(s, t)
@@ -267,14 +269,14 @@ if __name__ == '__main__':
             except:
                 winrate_error[run,i] = 0.0
             
-    
-    states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
+    sample_size = min(len(buffer.states), 1000)
+    states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(sample_size)
     temp = np.concatenate([np.tile(np.linspace(0,budget,50),(20,1)).reshape(-1,1),
                            np.tile(np.linspace(0, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
     contexts = states[:, :context_dim]
-    q = np.zeros((1000,3))
+    q = np.zeros((sample_size,3))
     q[:,:-1] = temp
-    biddings = np.random.uniform(0,1,size=1000)
+    biddings = np.random.uniform(0,1,size=sample_size)
     if isinstance(agent, TD3S):
         x = torch.Tensor(np.concatenate([contexts, temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
         q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
