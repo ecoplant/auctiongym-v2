@@ -18,7 +18,7 @@
     "lr": 1e-3,
     "batch_size": 256,
     "num_grad_steps": 10,
-    "tau": 0.01,
+    "tau": 0.005,
     "simulation_steps": 0,
     "exploration_strategy": "Noisy Network",
     "episodic_exploration": false,

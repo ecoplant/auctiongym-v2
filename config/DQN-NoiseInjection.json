@@ -19,7 +19,7 @@
     "num_grad_steps": 10,
     "simulation_steps": 0,
     "lr": 1e-3,
-    "tau": 0.01,
+    "tau": 0.005,
     "exploration_strategy": "Noise Injection",
     "episodic_exploration": false,
     "noise_init": 1.0,

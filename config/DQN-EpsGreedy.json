@@ -22,7 +22,7 @@
     "exploration_strategy": "Eps-Greedy",
     "episodic_exploration": false,
     "eps_init": 1.0,
-    "eps_min": 0.01,
+    "eps_min": 0.005,
     "eps_decay": 0.9999,
     "simulation_steps": 0,
     "output_dir": "results/DQN-EpsGreedy"

@@ -18,7 +18,7 @@
     "lr": 1e-3,
     "batch_size": 256,
     "num_grad_steps": 10,
-    "tau": 0.01,
+    "tau": 0.005,
     "simulation_steps": 0,
     "exploration_strategy": "Gaussian Noise",
     "episodic_exploration": false,
@@ -26,6 +26,6 @@
     "noise_min": 0.02,
     "noise_decay": 0.999,
     "mean_noise_init": 0.5,
-    "mean_noise_decay": 0.999,
+    "mean_noise_decay": 0.995,
     "output_dir": "results/Oracle_TD3_Gaussian"
 }

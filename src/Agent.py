@@ -916,7 +916,7 @@ class TD3S(Agent):
             if self.episodic_exploration:
                 self.mean_noise = self.rng.normal(0, self.mean_noise_var)
                 self.mean_noise_var = self.mean_noise_var*self.mean_noise_decay
-            np.maximum(self.noise*self.noise_decay, self.noise_min)
+            self.noise = np.maximum(self.noise*self.noise_decay, self.noise_min)
 
         elif self.exploration_strategy=='Noise Injection':
             if self.episodic_exploration:
