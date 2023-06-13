@@ -179,7 +179,6 @@ class DQN(Agent):
                     index = np.argmax(self.local_network.Q1(x).numpy(force=True))
                     item = index % self.num_items
                     bid = b_grid[int(index / self.num_items)]
-                self.eps = np.minimum(self.eps*self.eps_decay, self.eps_min)
 
             elif self.exploration_strategy=='Noise Injection':
                 if not self.episodic_exploration:
