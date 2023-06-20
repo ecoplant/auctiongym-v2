@@ -1,0 +1,27 @@
+{
+    "name": "DQN",
+    "type": "DQN",
+    "allocator":{
+        "type": "OracleAllocator",
+        "kwargs":{
+        }
+    },
+    "winrate":{
+        "type": "DefaultBidder",
+        "kwargs":{
+            "lr": 1e-4,
+            "batch_size": 256,
+            "num_grad_steps": 60
+        }
+    },
+    "hidden_dim": 32,
+    "batch_size": 256,
+    "num_grad_steps": 60,
+    "simulation_steps": 0,
+    "lr": 1e-4,
+    "tau": 0.01,
+    "exploration_strategy": "Noisy Network",
+    "episodic_exploration": false,
+    "var_scale": 0.1,
+    "output_dir": "results/DQN-NoisyNet"
+}

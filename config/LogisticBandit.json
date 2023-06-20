@@ -1,0 +1,18 @@
+{
+    "name": "Logistic-Default",
+    "type": "Bandit",
+    "allocator":{
+        "type": "LogisticAllocator",
+        "kwargs":{
+            "lr": 1e-3,
+            "mode": "\"UCB\"",
+            "c": 1.0
+        }
+    },
+    "bidder":{
+        "type": "MaxBidder",
+        "kwargs":{
+        }
+    },
+    "output_dir": "results/"
+}

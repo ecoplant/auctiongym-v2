@@ -1,0 +1,29 @@
+{
+  "name": "DQN",
+  "type": "DQN",
+  "allocator": {
+    "type": "OracleAllocator",
+    "kwargs": {
+    }
+  },
+  "winrate": {
+    "type": "DefaultBidder",
+    "kwargs": {
+      "lr": 1e-4,
+      "batch_size": 256,
+      "num_grad_steps": 60
+    }
+  },
+  "hidden_dim": 32,
+  "batch_size": 256,
+  "num_grad_steps": 120,
+  "simulation_steps": 20,
+  "lr": 1e-4,
+  "tau": 0.01,
+  "exploration_strategy": "Noise Injection",
+  "episodic_exploration": false,
+  "noise_init": 2.0,
+  "noise_min": 0.01,
+  "noise_decay": 0.95,
+  "output_dir": "results/DQN-NoiseInjection"
+}
