@@ -1,6 +1,6 @@
 {
     "name": "Oracle-TD3",
-    "type": "TD3S",
+    "type": "TD3",
     "allocator":{
         "type": "OracleAllocator",
         "kwargs":{

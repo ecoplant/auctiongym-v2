@@ -1,5 +1,5 @@
 {
-    "name": "Logistic-Default",
+    "name": "LogisticUCBBandit",
     "type": "Bandit",
     "allocator":{
         "type": "LogisticAllocator",
@@ -10,10 +10,13 @@
         }
     },
     "bidder":{
-        "type": "MaxBidder",
+        "type": "DefaultBidder",
         "kwargs":{
+            "lr": 1e-3,
+            "batch_size": 256,
+            "num_grad_steps": 10
         }
     },
-    "exploration_length": 0,
+    "exploration_length": 100,
     "output_dir": "results/UCBBandit"
 }

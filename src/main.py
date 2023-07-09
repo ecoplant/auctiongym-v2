@@ -74,6 +74,8 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
         w2 = rng.normal(0.0, 1.0, size=(d, 1))
         b2 = rng.normal(0.0, 1.0, size=(1, 1))
         CTR_param = (w1, b1, w2, b2)
+    else:
+        raise NotImplementedError
     
     if winrate_mode=='simulation':
         winrate_param = []
@@ -83,6 +85,8 @@ def set_model_params(rng, CTR_mode, winrate_mode, context_dim, feature_dim):
                 feature = rng.normal(0.0, 1.0, size=feature_dim)
                 temp.append(feature)
             winrate_param.append(np.stack(temp))
+    else:
+        raise NotImplementedError
 
     return CTR_param, winrate_param
 
@@ -91,14 +95,8 @@ def instantiate_agent(rng, name, item_features, item_values, context_dim, buffer
         return Bandit(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='DQN':
         return DQN(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-    elif agent_config['type']=='QBid':
-        return QBid(rng, name, item_features, item_values, context_dim, buffer, agent_config)
     elif agent_config['type']=='TD3':
         return TD3(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-    elif agent_config['type']=='TD3Q':
-        return TD3Q(rng, name, item_features, item_values, context_dim, buffer, agent_config)
-    elif agent_config['type']=='TD3S':
-        return TD3S(rng, name, item_features, item_values, context_dim, buffer, agent_config)
 
 if __name__ == '__main__':
     # Parse commandline arguments
@@ -149,8 +147,6 @@ if __name__ == '__main__':
     # memory recording statistics
     reward = np.zeros((num_runs, num_episodes))
     win_rate = np.zeros((num_runs, num_episodes))
-    # optimal_bandit_reward = np.zeros((num_runs, num_episodes))
-    # optimal_bandit_win_rate = np.zeros((num_runs, num_episodes))
     optimal_selection = np.zeros((num_runs, num_episodes))
     episode_length = np.zeros((num_runs, num_episodes))
     uncertainty = np.zeros((num_runs, num_episodes))
@@ -159,13 +155,6 @@ if __name__ == '__main__':
     winrate_error = np.zeros((num_runs, num_episodes))
     budgets = []
     bids = []
-
-    # estimated_CTR = np.zeros((num_runs, num_episodes))
-
-    # bidding_error_buffer = np.zeros((record_interval))
-
-    # num_records = int(num_episodes / record_interval)
-    # CTR_RMSE = np.zeros((num_runs, num_records))
 
     run2item_features, run2item_values = draw_features(rng, num_runs, feature_dim)
 
@@ -269,7 +258,7 @@ if __name__ == '__main__':
             except:
                 winrate_error[run,i] = 0.0
             
-    
+    flag = True # plot q-value shape if true
     states, item_inds, biddings, rewards, next_states, dones = agent.buffer.sample(1000)
     temp = np.concatenate([np.tile(np.linspace(0,budget,50),(20,1)).reshape(-1,1),
                            np.tile(np.linspace(0, horizon, 20),(1,50)).reshape(-1,1)], axis=1)
@@ -277,40 +266,40 @@ if __name__ == '__main__':
     q = np.zeros((1000,3))
     q[:,:-1] = temp
     biddings = np.random.uniform(0,1,size=1000)
-    if isinstance(agent, TD3S):
+    if isinstance(agent, TD3):
         x = torch.Tensor(np.concatenate([contexts, temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
         q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
     elif isinstance(agent, DQN):
         x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
         q[:,-1] = agent.local_network.Q1(x).numpy(force=True).reshape(-1)
     else:
-        x = torch.Tensor(np.concatenate([contexts, agent.items[item_inds], temp, biddings.reshape(-1,1)], axis=1)).to(agent.device)
-        q[:,-1] = agent.critic.Q1(x).numpy(force=True).reshape(-1)
+        flag = False
 
-    df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
-    for i in range(q.shape[0]):
-        df_rows['Budget Left'].append(q[i,0])
-        df_rows['Step Left'].append(q[i,1])
-        df_rows['Q'].append(q[i,2])
-    q_df = pd.DataFrame(df_rows)
+    if flag:
+        df_rows = {'Step Left': [], 'Budget Left': [], 'Q': []}
+        for i in range(q.shape[0]):
+            df_rows['Budget Left'].append(q[i,0])
+            df_rows['Step Left'].append(q[i,1])
+            df_rows['Q'].append(q[i,2])
+        q_df = pd.DataFrame(df_rows)
 
-    fig, axes = plt.subplots(figsize=FIGSIZE)
-    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
-    sns.lineplot(data=q_df, x="Step Left", y='Q', ax=axes)
-    plt.ylabel('Q', fontsize=FONTSIZE)
-    plt.xlabel("Step Left", fontsize=FONTSIZE)
-    plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/q_vs_step.png", bbox_inches='tight')
+        fig, axes = plt.subplots(figsize=FIGSIZE)
+        plt.title('Avg Q value', fontsize=FONTSIZE + 2)
+        sns.lineplot(data=q_df, x="Step Left", y='Q', ax=axes)
+        plt.ylabel('Q', fontsize=FONTSIZE)
+        plt.xlabel("Step Left", fontsize=FONTSIZE)
+        plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/q_vs_step.png", bbox_inches='tight')
 
-    fig, axes = plt.subplots(figsize=FIGSIZE)
-    plt.title('Avg Q value', fontsize=FONTSIZE + 2)
-    sns.lineplot(data=q_df, x="Budget Left", y='Q', ax=axes)
-    plt.ylabel('Q', fontsize=FONTSIZE)
-    plt.xlabel("Budget Left", fontsize=FONTSIZE)
-    plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/q_vs_budget.png", bbox_inches='tight')
+        fig, axes = plt.subplots(figsize=FIGSIZE)
+        plt.title('Avg Q value', fontsize=FONTSIZE + 2)
+        sns.lineplot(data=q_df, x="Budget Left", y='Q', ax=axes)
+        plt.ylabel('Q', fontsize=FONTSIZE)
+        plt.xlabel("Budget Left", fontsize=FONTSIZE)
+        plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/q_vs_budget.png", bbox_inches='tight')
 
     budget_array = np.sort(np.array(budgets))
     df_rows = {'Encountered Budget': []}

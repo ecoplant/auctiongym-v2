@@ -1,5 +1,5 @@
 {
-    "name": "Oracle-Oracle",
+    "name": "OracleBandit",
     "type": "Bandit",
     "allocator":{
         "type": "OracleAllocator",
