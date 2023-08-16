@@ -1,0 +1,12 @@
+{
+    "name": "Random1",
+    "constructor_call": "DQN(rng,\"DQN\",context_dim)",
+    "hidden_dim": 16,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "lr": 1e-3,
+    "tau": 0.1,
+    "eps_init": 1.0,
+    "eps_min": 0.005,
+    "eps_decay": 0.995
+}

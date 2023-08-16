@@ -1,0 +1,4 @@
+{
+    "name": "Random",
+    "constructor_call": "Random(rng,\"Random\",context_dim)"
+}

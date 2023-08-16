@@ -1,41 +1,22 @@
 import numpy as np
-import gym
-from gym.spaces import Dict, Box, Discrete, MultiBinary
 
 CONTEXT_LOW = -5.0
 CONTEXT_HIGH = 5.0
-VALUE_LOW = 0.0
-VALUE_HIGH = 1.0
-BID_LOW = 0.0
-BID_HIGH = 2.0
-
 
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
-class Auction(gym.Env):
-    def __init__(self, rng, agent, CTR_model, winrate_model, item_features, item_values, context_dim, context_dist, horizon, budget):
+class Auction:
+    def __init__(self, rng, agents, CTR_param, item_features, context_dim, context_dist, horizon, budget):
         super().__init__()
         self.rng = rng
-        self.agent = agent
+        self.agents = agents
+        self.num_agents = len(agents)
 
-        self.CTR_model = CTR_model
-        self.winrate_model = winrate_model
+        self.CTR_param = CTR_param
         self.item_features = item_features
-        self.item_values = item_values
-        self.context_dim = item_features.shape[1]
-        self.num_items = item_features.shape[0]
-
-        self.context_low = CONTEXT_LOW * np.ones(self.context_dim)
-        self.context_high = CONTEXT_HIGH * np.ones(self.context_dim)
-        self.observation_space = Dict({
-            'context' : Box(low=self.context_low, high=self.context_high),
-        })
-        self.action_space = Dict({
-            'item' : Discrete(self.item_features.shape[0]),
-            'bid' : Box(low=BID_LOW, high=BID_HIGH)
-        })
         self.context_dim = context_dim
+        
         self.context_dist = context_dist # Gaussian, Bernoulli, Uniform
         self.gaussian_var = 1.0
         self.bernoulli_p = 0.5
@@ -54,25 +35,27 @@ class Auction(gym.Env):
     
     def reset(self):
         self.context = self.generate_context()
-        self.remaining_steps = self.horizon
-        self.remaining_budget = self.budget
-        return np.concatenate([self.context, np.array([self.remaining_budget]), np.array([self.remaining_steps])]), {}
+        self.remaining_steps = self.horizon * np.ones((self.num_agents))
+        self.remaining_budget = self.budget * np.ones((self.num_agents))
 
-    def step(self, action):
-        item = action['item']
-        bid = action['bid']
-        winrate = self.winrate_model(self.context, bid)
-        win = self.rng.binomial(1, winrate)
-        CTR = self.CTR_model(self.context)
-        outcome = self.rng.binomial(1, CTR[item])
-        reward = self.item_values[item] * outcome * win
+        return np.concatenate([np.tile(self.context,(self.num_agents,1)), self.remaining_budget.reshape(-1,1), self.remaining_steps.reshape(-1,1)],axis=1), {}
+
+    def step(self, actions):
+        CTR = []
+        for j in range(self.num_agents):
+            CTR.append(sigmoid(self.context @ self.CTR_param @ self.item_features[j] / np.sqrt(self.context_dim)).item())
+        outcome = self.rng.binomial(1, p=CTR)
+
+        win = np.zeros((self.num_agents))
+        win[np.argmax(actions)] = 1
+        reward =  outcome * win
 
         info = {
             'win' : win,
-            'outcome' : outcome,
-            'optimal_selection' : item==np.argmax(self.item_values * CTR)
+            'outcome' : outcome
         }
-        self.remaining_budget -= win * bid.item()
+        self.remaining_budget -= win * np.array(actions)
         self.remaining_steps -= 1
         self.context = self.generate_context()
-        return np.concatenate([self.context, np.array([self.remaining_budget]), np.array([self.remaining_steps])]), reward, self.remaining_budget<1e-3, self.remaining_steps==0, info
+        return np.concatenate([np.tile(self.context,(self.num_agents,1)), self.remaining_budget.reshape(-1,1), self.remaining_steps.reshape(-1,1)],axis=1), \
+                                reward, np.logical_or(self.remaining_budget<1e-3, self.remaining_steps==0), info

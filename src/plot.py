@@ -9,18 +9,20 @@ FONTSIZE = 14
 def average(array, window):
     runs = array.shape[0]
     len = array.shape[1]
+    num_agents = array.shape[2]
     comp_len = int(len/window)
-    comp_array = np.empty((runs, comp_len))
+    comp_array = np.empty((runs, comp_len,num_agents))
     for r in range(runs):
         for i in range(comp_len):
-            comp_array[r,i] = np.mean(array[r,window*i:window*(i+1)])
+            comp_array[r,i] = np.mean(array[r,window*i:window*(i+1)],axis=0)
     return comp_array
 
-def numpy2df(array, measure_name):
-    df_rows = {'Run': [], 'Step': [], measure_name: []}
-    for (run,step), measure in np.ndenumerate(array):
+def numpy2df(array, agents, measure_name):
+    df_rows = {'Run': [], 'Step': [], 'Agent':[], measure_name: []}
+    for (run,step,agent), measure in np.ndenumerate(array):
         df_rows['Run'].append(run)
         df_rows['Step'].append(step)
+        df_rows['Agent'].append(agents[agent].name)
         df_rows[measure_name].append(measure)
     return pd.DataFrame(df_rows)
 
@@ -35,10 +37,10 @@ def list_of_numpy2df(dict, measure_name):
                 df_rows[measure_name].append(measure)
         return pd.DataFrame(df_rows)
 
-def plot_measure(df, measure_name, window_size, output_dir, hue=None):
+def plot_measure(df, measure_name, window_size, output_dir):
     fig, axes = plt.subplots(figsize=FIGSIZE)
     plt.title(f'{measure_name} Over Time', fontsize=FONTSIZE + 2)
-    sns.lineplot(data=df, x="Step", y=measure_name, ax=axes)
+    sns.lineplot(data=df, x="Step", y=measure_name, hue="Agent", ax=axes)
     min_measure = min(0.0, np.min(df[measure_name]))
     max_measure = max(0.0, np.max(df[measure_name]))
     max_step = max(df['Step']) + 1

@@ -1,0 +1,4 @@
+{
+    "name": "Constant",
+    "constructor_call": "Constant(rng,\"Constant\",context_dim)"
+}
