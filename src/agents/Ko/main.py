@@ -11,11 +11,9 @@ import torch
 from plot import *
 from Auction import Auction
 
-from agents.Kang.TD3BC import TD3BC
-from agents.Ko.Agent_DQN import DQN_Ko
-from agents.Lee.My import My
-from agents.Lim.Lim import DQN_Lim
-from agents.Shin.Shin import Shin
+from agents.Random.Random import Random
+from agents.Constant.Constant import Constant
+from agents.DQN.DQN import DQN
 
 
 def draw_features():
