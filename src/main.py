@@ -11,10 +11,10 @@ import torch
 from plot import *
 from Auction import Auction
 
-from agents.Kang.TD3BC import TD3BC
-from agents.Ko.Agent_DQN import DQN_Ko
-from agents.Lee.My import My
-from agents.Lim.Lim import DQN_Lim
+from agents.Kang.TD3BC2 import TD3BC2
+from agents.Ko.agent_dqn2 import DQN
+from agents.Lee.DQN5 import DQN5
+from agents.Lim.LimNoise import LimNoise
 from agents.Shin.Shin import Shin
 
 

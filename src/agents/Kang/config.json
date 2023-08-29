@@ -1,6 +1,6 @@
 {
     "name": "Kang",
-    "constructor_call": "TD3BC(rng,\"Kang\",run2item_features[run][len(agents)].reshape(1,-1),context_dim)",
+    "constructor_call": "TD3BC2(rng,\"Kang\",run2item_features[run][len(agents)].reshape(1,-1),context_dim)",
     "allocator":{
         "type": "LogisticAllocator",
         "kwargs":{

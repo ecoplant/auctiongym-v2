@@ -1,0 +1,12 @@
+{
+    "name": "Lim",
+    "constructor_call": "DQN_Lim(rng,\"Lim\",context_dim)",
+    "hidden_dim": 32,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "lr": 2e-3,
+    "tau": 0.01,
+    "eps_init": 1.0,
+    "eps_min": 0.005,
+    "eps_decay": 0.9999
+}
