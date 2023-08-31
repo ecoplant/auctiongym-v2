@@ -1,0 +1,35 @@
+{
+    "name": "UCB-TD3",
+    "type": "TD3",
+    "allocator":{
+        "type": "LogisticAllocator",
+        "kwargs":{
+            "lr": 1e-3,
+            "mode": "\"UCB\"",
+            "c": 1.0
+        }
+    },
+    "winrate":{
+        "type": "DefaultBidder",
+        "kwargs":{
+            "lr": 1e-3,
+            "batch_size": 256,
+            "num_grad_steps": 10
+        }
+    },
+    "hidden_dim": 16,
+    "lr": 1e-3,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "tau": 0.01,
+    "simulation_steps": 10,
+    "exploration_strategy": "Gaussian Noise",
+    "episodic_exploration": false,
+    "noise_init": 1.0,
+    "noise_min": 0.02,
+    "noise_decay": 0.999,
+    "mean_noise_init": 0.5,
+    "mean_noise_decay": 0.999,
+    "alpha":3,
+    "output_dir": "results/UCB_TD3BC_Gaussian"
+}
