@@ -1,12 +1,4 @@
 {
     "name": "Shin",
-    "constructor_call": "Shin(rng,\"Shin\",context_dim)",
-    "hidden_dim": 32,
-    "batch_size": 256,
-    "num_grad_steps": 10,
-    "simulation_steps" : 0,
-    "lr": 1e-3,
-    "tau": 0.007,
-    "var_scale" : 2.5,
-    "episodic_exploration": false
+    "constructor_call": "Shin(rng,\"Shin\",context_dim)"
 }

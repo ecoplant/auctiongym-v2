@@ -1,0 +1,12 @@
+{
+    "name": "Lim",
+    "constructor_call": "LimNoise(rng,\"Lim\",context_dim)",
+    "hidden_dim": 64,
+    "batch_size": 256,
+    "num_grad_steps": 10,
+    "lr": 1e-3,
+    "tau": 0.01,
+    "noise_init": 1.0,
+    "noise_min": 0.0,
+    "noise_decay": 0.9999
+}

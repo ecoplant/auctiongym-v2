@@ -5,7 +5,7 @@
     "horizon": 6,
     "budget": 2,
     "averaging_window": 50,
-    "context_dim": 10,
-    "feature_dim": 10,
+    "context_dim": 5,
+    "feature_dim": 5,
     "context_distribution": "Gaussian"
 }

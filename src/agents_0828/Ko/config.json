@@ -1,0 +1,1 @@
+{"name": "Ko", "constructor_call": "DQN(rng,\"Ko\",context_dim)", "hidden_dim": 64, "batch_size": 64, "num_grad_steps": 10, "lr": 0.001, "tau": 0.001, "eps_init": 0.9, "eps_min": 0.01, "eps_decay": 0.999}
