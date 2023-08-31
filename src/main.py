@@ -85,6 +85,10 @@ if __name__ == '__main__':
 
     # memory recording rewards
     reward = np.zeros((num_runs, num_episodes, num_agents))
+    probwinning = np.zeros((num_runs, num_episodes, num_agents))
+    biddings = np.zeros((num_runs, num_episodes, num_agents))
+    winbids = np.zeros((num_runs, num_episodes, num_agents))
+    eplen = np.zeros((num_runs, num_episodes, num_agents))
 
     for run in range(num_runs):
 
@@ -99,7 +103,10 @@ if __name__ == '__main__':
             done = truncated = False
             start = t
             episode_reward = np.zeros((num_agents))
+            episode_len = np.ones((num_agents))
             episode_win = np.zeros((num_agents))
+            episode_bidding = np.zeros((num_agents))
+            episode_winbid = np.zeros((num_agents))
 
             while not np.all(done):
                 
@@ -110,10 +117,14 @@ if __name__ == '__main__':
                     actions.append(bidding)
 
                 s_, r, done, info = auction.step(actions)
-                for agent in agents:
+                for j, agent in enumerate(agents):
                     agent.newdata(s[j], actions[j], r[j], s_[j],
                                         done[j], info['win'][j], info['outcome'][j])
-                    agent.update()
+                    if done[j]!=1:
+                        episode_len[j] += 1
+                    episode_win[j] += info['win'][j]
+                    episode_bidding[j] += actions[j]
+                    episode_winbid[j] += info['win'][j]*actions[j]
 
                 t += 1
                 episode_reward += r
@@ -122,6 +133,10 @@ if __name__ == '__main__':
             for agent in agents:
                 agent.update()
             reward[run,i] = episode_reward
+            probwinning[run,i] = episode_win/episode_len
+            biddings[run,i] = episode_bidding/episode_len
+            winbids[run,i] = episode_winbid/episode_len
+            eplen[run,i] = episode_len
     
     reward = average(reward, window_size)
     cumulative_reward = np.cumsum(reward, axis=1)
@@ -132,3 +147,23 @@ if __name__ == '__main__':
 
     cumulative_reward_df = numpy2df(cumulative_reward, agents, 'Cumulative Reward')
     plot_measure(cumulative_reward_df, 'Cumulative Reward', window_size, output_dir)
+
+    probwin = average(probwinning,window_size)
+    probwin_df = numpy2df(probwin, agents, 'Probability of Winning')
+    probwin_df.to_csv(output_dir + '/probwin.csv', index=False)
+    plot_measure(probwin_df, 'Probability of Winning', window_size, output_dir)
+
+    bidding = average(biddings,window_size)
+    bidding_df = numpy2df(bidding, agents, 'Bidding')
+    bidding_df.to_csv(output_dir + '/bidding.csv', index=False)
+    plot_measure(bidding_df, 'Bidding', window_size, output_dir)
+
+    winbid = average(winbids,window_size)
+    winbid_df = numpy2df(winbid, agents, 'Bidding on Winning')
+    winbid_df.to_csv(output_dir + '/winbid.csv', index=False)
+    plot_measure(winbid_df, 'Bidding on Winning', window_size, output_dir)
+
+    eplen = average(eplen,window_size)
+    eplen_df = numpy2df(eplen, agents, 'Episode Length')
+    eplen_df.to_csv(output_dir + '/eplen.csv', index=False)
+    plot_measure(eplen_df, 'Episode Length', window_size, output_dir)

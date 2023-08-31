@@ -2,10 +2,10 @@
     "random_seed": 42,
     "num_runs": 3,
     "num_episodes" : 2000,
-    "horizon": 6,
+    "horizon": 4,
     "budget": 2,
     "averaging_window": 50,
-    "context_dim": 10,
-    "feature_dim": 10,
+    "context_dim": 5,
+    "feature_dim": 5,
     "context_distribution": "Gaussian"
 }
